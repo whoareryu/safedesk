@@ -1,6 +1,6 @@
 # ADR-0002 인그레스: Traefik (K3s 기본)
 
-- 상태: 채택 (2026-11-11)
+- 상태: 채택 (2026-11-11), 보완 (2026-11-20, 아래 갱신 절)
 - 표기: 결정 **[Claude 제안]** / 공통 기준은 설계 문서 §24.1
 
 ## 결정
@@ -52,3 +52,10 @@ Traefik, ingress-nginx, HAProxy Kubernetes Ingress, Caddy(ingress controller), G
 - K3s 네트워킹·Traefik: https://docs.k3s.io/networking/networking-services
 - K3s HelmChartConfig: https://docs.k3s.io/add-ons/helm
 - Traefik v3 미들웨어·TLS 옵션 안내: https://www.bigiron.cc/guides/traefik-v3-kubernetes-ingress-with-middleware-and-tls-options
+
+## 갱신 (2026-11-20) **[사용자 결정]** U24, U28
+- 결정(Traefik)은 그대로다. 바뀐 것은 Traefik 앞단이다: 공개 트래픽이 Cloudflare 에지 → cloudflared(VM 호스트) → Traefik 443으로 들어온다 (ADR-0015).
+- "결정을 바꾸게 될 조건"의 **"앞단 WAF 추가"는 Cloudflare Free WAF로 실현됐다**: Free Managed Ruleset, WAF 커스텀 규칙(국가 차단, 콘솔 Managed Challenge, `/signup` 차단, 메서드 제한), 민감 경로 rate limit, Bot Fight Mode. Traefik 미들웨어는 원본 쪽 방어선으로 남는다.
+- Traefik에 직접 닿는 연결은 모두 노드의 cloudflared에서 오므로 `forwardedHeaders.trustedIPs`를 cloudflared 출발 주소 /32 하나로 좁히고(기본 노드 IP, M1 Task 9에서 실측해 확정 — **[Claude 제안, 실측 전]**), 방문자 IP는 `CF-Connecting-IP`/`X-Forwarded-For`에서 읽는다. `TLSOption`에 `sniStrict: true`를 더한다.
+- **[사용자 결정]** U33 (2026-11-20): IPAllowList 미들웨어(`console-ipallow`)는 쓰지 않는다. 면접관이 상담원 콘솔도 시연해야 하므로(U19) relay `/console`은 에지 Managed Challenge + 에지 rate limit + 상담원 TOTP로 보호한다.
+- 근거: 설계 문서 §11.3, §11.4.

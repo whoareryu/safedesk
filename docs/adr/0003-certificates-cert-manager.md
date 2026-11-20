@@ -1,6 +1,6 @@
 # ADR-0003 인증서: cert-manager + Let's Encrypt
 
-- 상태: 채택 (2026-11-11)
+- 상태: 채택 (2026-11-11), **갱신: DNS-01 (2026-11-20)**
 - 표기: 결정 **[Claude 제안]** / 공통 기준은 설계 문서 §24.1
 
 ## 결정
@@ -50,3 +50,12 @@ cert-manager + Let's Encrypt, Traefik 내장 ACME, Cloudflare(프록시 인증�
 - Traefik 블로그(cert-manager와 함께 쓰기): https://traefik.io/blog/secure-web-applications-with-traefik-proxy-cert-manager-and-lets-encrypt
 - Let's Encrypt 한도: https://letsencrypt.org/docs/rate-limits/
 - DuckDNS의 Public Suffix List 등재: https://bugzilla.mozilla.org/show_bug.cgi?id=1165730
+
+## 갱신 (2026-11-20): HTTP-01 → DNS-01 (Cloudflare) **[사용자 결정]** U25
+- 결정: cert-manager + Let's Encrypt는 유지하고, 챌린지를 **DNS-01(Cloudflare)**로 바꾼다. `ClusterIssuer` `letsencrypt-staging`/`letsencrypt-prod`의 solver는 `dns01.cloudflare`뿐이고 HTTP-01 solver는 두지 않는다. staging 먼저, prod는 전환 가드 스크립트로만 (기존과 같음).
+- 맥락 변화: 도메인이 DuckDNS에서 사용자의 기존 개인 도메인 `whoareryu.cloud`(네임서버 Cloudflare)로 바뀌었다. 공개 경로가 Cloudflare 터널이라 HTTP-01 요청이 원본에 직접 닿지 않는다 (ADR-0014, ADR-0015).
+- 비교표의 Cloudflare 행 탈락 근거("DuckDNS 도메인을 Cloudflare 존으로 옮길 수 없음")는 사라졌다. 그래도 인증서 발급 도구로는 cert-manager를 유지한다. Cloudflare는 에지 인증서(Universal SSL)를 맡고, 원본 구간은 cert-manager 인증서로 Full (strict) 검증을 한다. 내부 CA 용도도 그대로다.
+- API 토큰 **[사용자 결정]**: 이 zone 하나, 권한 Zone·DNS·Edit, 집 공인 **IPv4** 필터, 6개월 만료. Zone·Zone·Read는 cert-manager Cloudflare solver가 zone ID를 조회하는 데 **기술적으로 필요**해 더했다 → 사용자 승인 2026-11-20 (원래 사용자 결정은 "zone DNS 편집만", U25·U35). Cloudflare API 호출은 IPv4로 강제하고, cert-manager 이그레스가 IPv4인지 M1에서 확인한다. 원본은 Mac 키체인, 클러스터에는 `cert-manager` ns Secret(키 `api-token`) 하나.
+- 포기한 것 갱신: 기존 "HTTP-01 솔버 Pod 때문에 NP 허용 규칙(N5) 필요"는 없어졌다 (설계 문서 §10 N5 폐지). 대신 토큰이 zone 레코드를 고칠 수 있어 apex/www(Vercel)까지 영향 줄 수 있는 폭발 반경이 생겼다 (설계 문서 §16, §22).
+- 운영 주의 갱신: `whoareryu.cloud`는 등록 도메인 하나라 Let's Encrypt 주간 한도를 apex/www(Vercel)의 인증서 발급과 공유할 수 있다. prod 재발급을 반복하지 않는다. CAA 레코드가 Let's Encrypt를 막지 않는지 M1에서 먼저 확인한다.
+- 근거 (2026-11-20 조회): cert-manager Cloudflare DNS-01 https://cert-manager.io/docs/configuration/acme/dns01/cloudflare/ , ClusterIssuer Secret 위치 https://cert-manager.io/docs/configuration/

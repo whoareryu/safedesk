@@ -1,6 +1,6 @@
 # ADR-0011 호스팅: OCI Always Free Ampere A1 (대안: 로컬 Mac VM)
 
-- 상태: 채택 (2026-11-11)
+- 상태: 채택 (2026-11-11) → **대체됨 by [ADR-0014](0014-hosting-local-lima.md) (2026-11-20). OCI는 향후 이전 경로로 보존** (`TARGET=oci`, 구조만)
 - 표기: 결정 **[Claude 제안]**, 0원 조건은 **[사용자 결정]** / 공통 기준은 설계 문서 §24.1
 - 추가 필수 조건: **상시 공개 운영**(외부 포트 스캔 S1, 데모 URL)을 할 수 있어야 한다
 
@@ -71,3 +71,14 @@ OCI Always Free, GCP Always Free e2-micro, AWS 프리 티어, 로컬 홈랩/Mac 
 - AWS 프리 티어 변경(2025-07): https://docs.aws.amazon.com/en_us/awsaccountbilling/latest/aboutv2/free-tier.html , https://aws.amazon.com/free/terms
 - GCP 무료 등급: https://cloud.google.com/free/docs/free-cloud-features , (외부 IP 관련 2차 자료) https://yangworks.dev/guides/google-cloud-free-tier-e2-micro
 - GitHub arm64 러너(공개 저장소 무료 GA): https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/
+
+## 갱신 (2026-11-20): 대체됨 by ADR-0014 **[사용자 결정]** U21~U23
+- 본문은 2026-11-11 판단 기록으로 그대로 둔다.
+- 무엇이 바뀌었나: 사용자가 필수 조건 **"상시 공개 운영"을 "Mac이 켜져 있는 동안 공개"로 바꿨다.** 위 필수 조건 판정에서 로컬 Mac VM이 떨어진 유일한 이유가 이 조건이었으므로, 가중 점수가 더 높던 로컬 Mac VM(Lima)이 기본안이 됐다.
+- 왜 바꿨나 (M1 Task 2 직전 조사, 2026-11-20 확인):
+  - Oracle Always Free 문서가 A1 생성 가능 가용 도메인에서 **South Korea North(춘천)를 제외**한다. 춘천은 A1 홈 리전 후보가 아니다.
+  - 서울은 가용 도메인이 하나라 "다른 AD로 재시도"를 쓸 수 없고, 무료 계정의 용량 부족 보고가 이어진다 (일화 수준, 정량 자료 없음).
+  - A1 한도 절반 축소(2 OCPU / 12 GB), 유휴 회수(7일간 세 지표 모두 20% 미만), 바꿀 수 없는 홈 리전 제약은 위 본문과 같다.
+  - 해외 홈 리전이나 재시도 스크립트는 결과가 보장되지 않고, 홈 리전은 한 번 고르면 바꿀 수 없다.
+- 보존하는 것: 위 "OCI Always Free에서 지켜야 할 사실", 비용 가드레일 CG1~CG4·CG8(보류 상태), `k8s/overlays/oci` 자리, OCI VM 런북(future, 미검증). 이전할 때는 홈 리전·용량을 다시 조사하고, 호스트 방화벽과 Tailscale(ADR-0010)을 되살린다.
+- 근거 (2026-11-20 조회): https://docs.oracle.com/iaas/Content/FreeTier/resourceref.htm (춘천 제외, 한도, 유휴 회수), https://infoq.com/news/2026/07/oracle-cloud-free-tier-limits/ (한도 축소 보도), https://wikidocs.net/blog/@insightbridge/20226/ (국내 리전 용량 관련 글, 일화)

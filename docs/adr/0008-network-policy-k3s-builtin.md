@@ -1,6 +1,6 @@
 # ADR-0008 네트워크 정책: K3s 내장 NetworkPolicy 컨트롤러
 
-- 상태: 채택 (2026-11-11)
+- 상태: 채택 (2026-11-11), 갱신 (2026-11-20, N5 폐지)
 - 표기: 결정 **[Claude 제안]** / 공통 기준은 설계 문서 §24.1
 
 ## 결정
@@ -54,3 +54,9 @@ K3s 내장 컨트롤러, Cilium, Calico
 - K3s CNI 비교(Flannel·Calico·Cilium과 NetworkPolicy): https://www.tobias-weiss.org/content/devops/k3s-distributions-cni-comparison/
 - Cilium 메모리 관련(이슈·스케일 보고서): https://docs.cilium.io/en/latest/operations/performance/scalability/report/ , https://github.com/cilium/cilium/issues/32940
 - Calico를 K3s에 적용: https://oneuptime.com/blog/post/2026-03-20-k3s-replace-flannel-calico/view
+
+## 갱신 (2026-11-20)
+- 결정(K3s 내장 컨트롤러)은 그대로다.
+- 설계 문서 §10의 **N5(ACME HTTP-01 솔버 허용)는 폐지**했다. cert-manager가 DNS-01로 바뀌어(ADR-0003 갱신) 앱 ns에 솔버 Pod를 만들지 않기 때문이다. 번호는 재사용하지 않는다.
+- cloudflared는 VM 호스트 프로세스라 NetworkPolicy 범위 밖이다 (위 "포기한 것"의 노드 트래픽 한계와 같은 종류). 앱 Pod가 cloudflared metrics, Cloudflare API, 터널 엔드포인트로 나가지 못하는 것은 netmatrix M1-X9~X11 행으로 확인한다.
+- "외부 egress 예외는 `audit-anchor` 하나" 원칙은 유지된다. 그 CronJob의 외부 대상은 OCI Object Storage를 쓸 수 없게 되어 M4에서 다시 정한다 (U31). 위 본문의 "OCI Object Storage 쓰기 전용 PAR"은 `TARGET=oci` 기준 기록이다.

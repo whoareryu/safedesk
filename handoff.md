@@ -1,97 +1,70 @@
 # Handoff — 다음 세션 시작점
 
-> 사용자가 "handoff 확인해서 작업 진행해줘"라고 하면, 이 파일을 끝까지 읽고 **"다음 세션이 할 일"** 순서대로 바로 진행한다. 다시 기획하거나 질문부터 하지 않는다.
+> 사용자가 "handoff 확인해서 작업 진행해줘"라고 하면, 이 파일을 끝까지 읽고 **"다음 세션이 할 일"** 순서대로 바로 진행한다. 다시 기획하지 않는다. 결정이 필요한 지점에서는 멈추고 사용자에게 묻는다 (아래 §3 "결정 규칙").
 
-- 작성일: 2026-11-11
-- 현재 상태: 기획 완료, 코드 없음. 다음 작업은 **M1 Task 1**.
+- 작성일: 2026-11-11, 갱신: 2026-11-20
+- 현재 상태: **M1 Task 1 완료.** 호스팅을 OCI에서 **로컬 Lima VM + Cloudflare 이름 있는 터널**로 바꾸는 사용자 결정(U21~U35)이 기획서 v5와 ADR-0014·0015에 반영됨. M1 실행 기준은 `docs/superpowers/plans/2026-11-20-m1-local-cloudflare.md`(사용자 결정 2026-11-20, 완료 기준 C1~C19). 다음 작업은 **M1 Task 2 (Step 0 env 인터페이스 변경 + Lima VM)**.
 
 ## 1. 프로젝트 한 줄 요약
 
-AI 고객문의 서비스(SafeDesk)와 가벼운 데모 앱(MiniShop)이 같은 **PII Relay**를 끼워 쓰는 구조를 K3s 위에서 0원으로 운영하는 보안 포트폴리오다. 목표는 "고객도, 프로젝트 주인도 개인정보를 함부로 볼 수 없고, 보면 반드시 흔적이 남는다"를 공격 시연으로 증명하는 것.
+AI 고객문의 서비스(SafeDesk)와 가벼운 데모 앱(MiniShop)이 같은 **PII Relay**를 끼워 쓰는 구조를 K3s 위에서 운영하는 보안 포트폴리오다. 런타임은 MacBook의 Lima VM이고, 보여줄 때만 켜서 Cloudflare 터널로 공개한다. 비용은 **기존 개인 도메인을 쓰고 프로젝트가 추가로 내는 비용 0원**이다. 목표는 "고객도, 프로젝트 주인도 개인정보를 함부로 볼 수 없고, 보면 반드시 흔적이 남는다"를 공격 시연으로 증명하는 것.
 
 ## 2. 꼭 읽을 파일
 
 | 파일 | 용도 |
 |---|---|
-| `docs/2026-11-11-secure-ax-k3s-design.md` | 기획서 (v4, 승인됨). §4 사용자 결정 U1~U20 |
-| `docs/adr/0001~0013` | 기술 선정 근거 (면접 대비) |
-| `docs/superpowers/plans/2026-11-11-m1-infra-foundation.md` | **M1 구현 계획 (Task 1~11)**. 실행 기준 문서 |
+| `docs/2026-11-11-secure-ax-k3s-design.md` | 기획서 (**v5**, 2026-11-20). §4 사용자 결정 U1~U35. 로컬·Cloudflare 기준은 §3, §11.4, §17.1, §19 |
+| `docs/adr/0001~0015` | 기술 선정 근거 (면접 대비). 이번 변경: 0014(로컬 Lima 호스팅), 0015(Cloudflare 터널·에지), 0003(DNS-01로 갱신), 0010(로컬 보류), 0011(대체됨, OCI는 향후 이전 경로), 0002·0008(보완) |
+| `docs/superpowers/plans/2026-11-20-m1-local-cloudflare.md` | **M1 실행 기준 (Task 2~12, 완료 기준 C1~C19)** |
+| `docs/superpowers/plans/2026-11-11-m1-infra-foundation.md` | 기존 M1 계획. Task 1은 이 문서 기준으로 끝났다. Task 2 이후는 개정 계획이 대체 |
+| `.superpowers/sdd/2026-11-11-m1-infra-foundation/progress.md` | 진행 원장. 사용자 결정(USER 줄)과 Task별 리뷰 이력 |
 
 ## 3. 확정된 진행 방식
 
-- **실행 방식: Native.** 사용자가 선택했다. 이 세션의 Claude가 `superpowers:executing-plans` 스킬로 계획을 Task 단위로 직접 실행하고, M1이 끝나면 독립 리뷰어 한 명이 전체를 점검한다.
-- **절차:** 각 Task는 "검증 스크립트 먼저 → 실패 확인 → 구현/적용 → 통과 확인 → 커밋" 순서로 진행한다.
-- **사용자가 직접 해야 하는 단계:** OCI 콘솔, DuckDNS 가입, Tailscale 로그인, 재부팅 확인은 사용자 몫이다. 그 단계에 오면 할 일을 짧게 안내하고, 결과(출력이나 캡처)를 받아서 이어간다.
+- **실행 방식 (사용자 확정, 2026-11-20):** 서브에이전트 병렬 실행. **결정 규칙:** 모든 결정은 사용자가 내린다. 결정이 필요하면 선택지와 **추천안(이유 포함)**을 함께 묻고, 답을 받기 전에는 정하지 않는다. 독립적인 작업은 **서브에이전트를 병렬로** 돌린다 (`superpowers:subagent-driven-development`). 진행과 결정은 위 진행 원장에 기록한다.
+- **절차:** 각 Task는 "검증 스크립트 먼저 → 실패 확인 → 구현/적용 → 통과 확인 → 리뷰 → 커밋" 순서로 진행한다.
+- **저장소:** `github.com/whoareryu/safedesk` (public). Secret scanning과 push protection이 켜져 있다. 커밋 작성자 이메일은 저장소 로컬 설정의 GitHub noreply 주소를 쓴다 (전역 설정을 바꾸지 않는다). 커밋 메시지에 `Co-Authored-By` 트레일러를 넣지 않는다.
+- **사용자가 직접 해야 하는 단계:** 그 단계에 오면 할 일을 짧게 안내하고, 결과(출력이나 캡처, 비밀값은 가린 것)를 받아서 이어간다.
+  - Lima: VM 생성·시작 확인(`limactl create/start`), VM stop/start와 Mac 잠자기 후 재검증
+  - S1 보강: **같은 LAN의 다른 실제 기기**(다른 노트북, 또는 Termux에서 nmap을 돌리는 휴대폰)에서 Mac LAN IP를 `nmap -n -oG`로 스캔. 검증 스크립트가 `-oG` 출력을 읽으므로 nmap이 아닌 스캔 앱은 쓰지 않는다 (U35). 같은 Mac의 Docker 컨테이너는 대체 수단이며, 쓰면 Docker VM 네트워크를 거쳤을 수 있다는 한계를 증거에 적는다 (U33, U34)
+  - LAN 스캔 대조 포트 18090: macOS 애플리케이션 방화벽이 막으면 스캔하는 동안만 python을 허용하고 끝나면 제거, 포트와 허용 사실을 증거에 기록 (U35). nmap은 `-n`으로 돌리고 호스트 이름·MAC 주소는 가린다 (가림 규칙은 사용자 결정 U35)
+  - 시연: `make demo-up`(VM 시작, `caffeinate`, 시계 차이 확인)으로 켜고, `make demo-down`은 `caffeinate`를 해제하고 VM을 정지한다(`limactl stop`). 두 타깃은 **M1 Task 12**에서 만든다. 평소 꺼져 있으면 방문자는 Cloudflare 기본 오류 화면을 본다 (U33~U35)
+  - Cloudflare 대시보드 — 계정·비용: Billing에서 **유료 구독 0개**와 결제수단 상태 확인, 결제수단이 있으면 제거 시도(안 되면 이유와 "구독 0개" 화면 기록), zone 플랜 Free 확인, 금지 유료 기능 목록 점검 (기획서 §19.2 CG-CF1~CG-CF4). 캡처는 이메일·계정 ID·카드 끝자리를 가려서 `docs/cost/`에. **모든 Cloudflare 대시보드 캡처**에서 계정 이메일·계정 이름·ID를 가린다
+  - Cloudflare 대시보드 — DNS 기준선: apex와 `www`의 레코드·프록시 상태 캡처 (DNS-only, 건드리지 않음)
+  - Cloudflare 대시보드 — API 토큰: DNS-01용 토큰(이 zone 하나, Zone·DNS·Edit + Zone·Zone·Read(cert-manager에 기술적으로 필요, 사용자 승인), 집 공인 **IPv4** 필터, 6개월 만료)을 만들어 **화면에서 바로 Mac 키체인에 저장**. 설정 내보내기용 읽기 전용 토큰도 같은 제한(단일 zone, 집 IPv4 필터, 6개월 만료)으로 같은 방식 (U25, U35)
+  - 터널: `cloudflared tunnel login`(브라우저), `tunnel create`, `tunnel route dns` 세 호스트. 끝나면 `cert.pem` 삭제. Zero Trust 온보딩이 결제수단을 요구하면 진행하지 않고 CLI 경로로 돌아온다
+  - Cloudflare 대시보드 — 에지 규칙: Bot Fight Mode, Free Managed Ruleset, rate limit 1개, WAF 커스텀 R1~R4, 캐시 우회, SSL Full (strict)·Always Use HTTPS·최소 TLS 1.2 (기획서 §11.4). 화면 캡처
+  - 월 1회 비용 점검 (Cloudflare Billing, GitHub 사용량)
 - **지켜야 할 원칙:**
-  - 비용 0원 (기획서 §19.2 CG1~CG10)
-  - 비밀값 커밋 금지 (저장소는 public 전제)
+  - 프로젝트 추가 비용 0원 (기획서 §19.2. OCI용 CG1~CG4·CG8은 보류, CG-CF1~CG-CF4 적용)
+  - 비밀값 커밋 금지 (저장소 public). Cloudflare 토큰, 터널 자격 증명 JSON·`cert.pem`, 터널 UUID, ACME 이메일, kubeconfig는 저장소에 넣지 않는다
+  - apex/`www`(Vercel)의 DNS 레코드·프록시 상태를 바꾸지 않는다. Cloudflare 규칙은 세 호스트로 범위를 좁힌다
+  - 공개 데모는 합성 데이터만 (Cloudflare 에지가 평문을 볼 수 있음)
+  - 스크립트는 bash 3.2 호환
   - 기술을 선택할 때마다 선정 근거와 비교 대안을 남긴다
 
-## 4. 다음 세션이 할 일 — M1 Task 1: 저장소 뼈대와 비밀 위생
+## 4. 다음 세션이 할 일 — M1 Task 2: Lima VM 정의와 호스트 검증
 
-상세는 계획 파일의 "Task 1"이 기준이다. 아래는 바로 시작하기 위한 요약이다.
+**기준은 계획 문서의 "Task 2"다.** 이 절은 요약을 두지 않고 순서만 적는다 (요약이 계획과 어긋나지 않게).
 
-### 4.0 사전 준비 (Mac, 처음 한 번)
+- Step 0: Task 1 env·비밀 규칙 인터페이스 변경 (`env.sh`, `cluster.env.example`, 훅, `.gitleaks.toml`, `.gitignore`, 테스트) → 커밋 `chore: env vars and secret rules for local+cloudflare target`
+- Step 1~5: `m1-host.sh`·`m1-lima.sh` 검증 먼저 → `infra/lima/secure-ax.yaml`(`mounts: []`, `networks: []`, 포워드 6443 + catch-all `ignore`) → 사용자 `limactl create/start` → PASS
+- Step 6: `future-oci-vm.md`, `k8s/overlays/oci/README.md` 자리만
+- Step 7: 커밋 `feat(host): lima vm definition with no mounts, no extra networks, 6443-only forward` (트레일러 없음)
+- 사전: 이 Mac에 설치된 도구(2026-11-20 확인): `git`, `gh`, `make`, `kubectl`, `helm`, `pre-commit`, `gitleaks`, `shellcheck`, `nmap`, `lima`(`limactl`), `cloudflared`, `docker`(Docker Desktop). Lima·cloudflared 버전을 확인해 `k8s/VERSIONS.md`에 기록한다. 그 밖에 필요한 도구가 생기면 사용자 확인 후 설치한다.
 
-2026-11-11 기준으로 이 Mac에 **없는** 도구는 `pre-commit`, `gitleaks`, `nmap`, `helm`, `shellcheck`다. `git`, `kubectl`, `tailscale`, `brew`는 있다.
+## 5. Task 2 다음
 
-- Task 1에 필요한 것: `brew install pre-commit gitleaks shellcheck`
-- 이후 Task에 필요한 것(지금 같이 설치해도 됨): `brew install nmap helm`
-- 설치 명령은 사용자 확인 후 실행한다.
-
-### 4.1 만들 파일
-
-| 파일 | 내용 |
-|---|---|
-| `.gitignore` | `config/cluster.env`, `*.kubeconfig`, `kubeconfig*`, `.env*`, `docs/evidence/**/raw/` |
-| `.pre-commit-config.yaml` | gitleaks hook (rev는 설치된 최신 안정판으로 고정) |
-| `.gitleaks.toml` | 기본 규칙 + DuckDNS 토큰(UUID 형식), Tailscale auth key(`tskey-`) 규칙 추가 |
-| `config/cluster.env.example` | 변수 이름만: `PUBLIC_IP TS_IP HOST_SAFEDESK HOST_MINISHOP HOST_RELAY ACME_EMAIL K3S_VERSION` |
-| `scripts/lib/assert.sh` | `assert_eq <expected> <actual> <msg>`, `assert_contains <haystack> <needle> <msg>`, `assert_fails <msg> -- <cmd...>`, `assert_succeeds <msg> -- <cmd...>`, `assert_summary` (`PASS n / FAIL m`, 실패가 있으면 exit 1) |
-| `scripts/lib/env.sh` | `load_env`: `config/cluster.env`를 source하고, 위 변수 중 빈 값이 있으면 이름을 출력하고 exit 2 |
-| `tests/scripts/run.sh` | `tests/scripts/test_*.sh`를 모두 실행하고, 하나라도 실패하면 exit 1 |
-| `tests/scripts/test_assert.sh` | assert 라이브러리 자체 테스트 |
-| `Makefile` | `test-scripts` 타깃 (`verify-m1`은 Task 11에서 채움) |
-
-### 4.2 순서
-
-1. `git init -b main`, `.gitignore` 작성
-2. **실패하는 테스트 작성:** `tests/scripts/test_assert.sh`에 아래 경우를 넣는다. 각 경우는 서브셸에서 돌려 종료 코드를 확인한다.
-   - `assert_eq a a`는 통과
-   - `assert_eq a b`는 실패로 집계
-   - `assert_fails "x" -- false`는 통과
-   - `assert_fails "x" -- true`는 실패로 집계
-   - 실패가 1건이면 `assert_summary`의 종료 코드가 1
-3. `make test-scripts` 실행 → `assert.sh`가 없어서 **FAIL**인지 확인
-4. `assert.sh`, `env.sh`, `run.sh`, `Makefile` 구현
-5. `make test-scripts` 실행 → **PASS** 확인
-6. `pre-commit install` 후 비밀값 차단 확인:
-   - `config/leak-test.txt`에 `DUCKDNS_TOKEN=<UUID 형식 가짜값>`을 넣는다.
-   - `git add` 후 커밋을 시도해서 gitleaks가 **거부**하는지 확인한다.
-   - 확인 후 파일을 삭제한다.
-7. 첫 커밋. 기존 `docs/`와 이 `handoff.md`도 포함한다.
-
-   ```
-   chore: repo skeleton, assert lib, gitleaks pre-commit
-
-   Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
-   ```
-
-### 4.3 Task 1 완료 기준
-
-- `make test-scripts` PASS
-- 가짜 토큰 커밋이 gitleaks로 거부됨
-- 첫 커밋 완료, `git status` clean
-
-## 5. Task 1 다음
-
-- **Task 2:** OCI VM 생성. 사용자가 콘솔에서 직접 만든다. 계획 파일 Task 2의 런북 순서를 따른다.
-- **ARM 용량 부족 시:** "Out of capacity"로 생성이 안 되면 기획서 §19.3 대안 A(로컬 Mac VM, `k8s/overlays/local`)로 전환할지 사용자에게 묻는다.
-- **작업 끝날 때:** 이 `handoff.md`의 "현재 상태"와 "다음 세션이 할 일"을 다음 Task 기준으로 갱신한다.
+- 개정 계획 순서: Task 3 호스트 하드닝(로컬 호스트 방화벽 없음, U30) → Task 4 K3s(API는 Mac `127.0.0.1:6443`만) → Task 5 Cloudflare 계정·비용 점검, DNS 기준선, DNS-01 토큰, cert-manager → Task 6 Traefik → Task 7 네임스페이스·PSA·default-deny(N5 없음) → Task 8 더미 앱·인증서 staging→prod → Task 9 cloudflared 터널 → Task 10 에지 통제 → Task 11 netmatrix → Task 12 통합 검증·VM 생명주기·`make demo-up`/`demo-down`.
+- **작업 끝날 때:** 이 `handoff.md`의 "현재 상태"와 "다음 세션이 할 일"을 다음 Task 기준으로 갱신하고, 진행 원장에도 기록한다.
 
 ## 6. 기억해 둘 사실 (조사로 확인됨)
 
-- OCI Always Free A1: 2026-06에 **2 OCPU / 12 GB**로 축소됐다. PAYG 업그레이드는 금지.
+- OCI Always Free A1: 2 OCPU / 12 GB로 축소. Always Free 문서가 A1 생성 가능 AD에서 **춘천을 제외**, 서울은 단일 AD. 그래서 당분간 OCI를 쓰지 않는다 (향후 이전 경로로만 보존, ADR-0011·0014). PAYG 업그레이드는 금지.
+- Cloudflare Free 한도 (2026-11-20 조회): rate limiting 규칙 1개(10초 고정), WAF 커스텀 규칙 5개, 관리형 규칙은 Free Managed Ruleset만, Bot Fight Mode는 WAF로 예외 불가, Universal SSL은 1단계 서브도메인까지, 6443은 프록시 포트가 아님.
+- cloudflared 이그레스는 7844(TCP http2 / UDP QUIC) 필수, 443은 선택. TLS 검증 기본 켜짐, `originServerName`으로 호스트별 검증.
+- Lima 게스트 에이전트는 guest 리스너(K8s LoadBalancer/NodePort 포함)를 Mac `127.0.0.1`로 자동 포워드한다. catch-all `ignore`가 필수. 기본 템플릿은 홈을 읽기 전용 마운트하므로 `mounts: []`를 명시한다.
+- apex/`www`는 DNS-only로 Vercel을 가리킨다. Let's Encrypt 주간 한도를 같은 등록 도메인으로 공유할 수 있으니 prod 재발급을 반복하지 않는다.
 - ingress-nginx: 2026-03 EOL. Traefik을 선택한 근거 중 하나.
 - trivy-action 태그 탈취 사고(2026-03, CVE-2026-33634): GitHub Action은 커밋 SHA로 고정한다.
 - Gemini 무료 티어는 입력 데이터가 Google 제품 개선에 쓰일 수 있어 사용하지 않는다. LLM은 Ollama 전용.

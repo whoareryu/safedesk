@@ -1,5 +1,7 @@
 # M1 인프라 기초 Implementation Plan
 
+> **알림 (2026-11-20, 사용자 결정):** 이 계획은 OCI 대상 버전으로, 이후 OCI 이전을 위해 보관만 한다. 현재 M1 실행 기준은 `docs/superpowers/plans/2026-11-20-m1-local-cloudflare.md`(로컬 Lima VM + Cloudflare Tunnel)다. Task 1은 이 계획대로 완료됐고(7ca8306, 93e0deb), Task 2~11은 새 계획의 Task 2~12로 대체됐다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** OCI Always Free ARM VM 한 대에 K3s를 올리고, 외부에는 80/443만 열린 상태에서 세 DuckDNS 호스트가 Let's Encrypt HTTPS로 더미 앱을 서비스하며, 5개 앱 네임스페이스가 처음부터 PSA `restricted` + default-deny NetworkPolicy 아래에 있음을 스크립트로 증명한다.

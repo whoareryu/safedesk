@@ -1,6 +1,6 @@
 # ADR-0010 원격 관리 접속: Tailscale
 
-- 상태: 채택 (2026-11-11)
+- 상태: 채택 (2026-11-11) → **로컬에서는 적용 보류 (2026-11-20)**. `TARGET=oci`로 옮기면 다시 적용한다
 - 표기: 결정 **[Claude 제안]** / 공통 기준은 설계 문서 §24.1
 - 추가 필수 조건: 설계 원칙 "외부에 열리는 포트는 80/443뿐"(S1)을 지켜야 한다
 
@@ -49,3 +49,12 @@ Tailscale, WireGuard 직접 구성, SSH 포트 공개(키 인증 + fail2ban), Cl
 - Tailscale 무료 플랜 범위: https://www.ssdnodes.com/learn/is-tailscale-free-plan-limits , https://tailscale.com/pricing
 - K3s `--tls-san`(API 서버 인증서에 추가 주소): https://docs.k3s.io/cli/server
 - Headscale: https://github.com/juanfont/headscale
+
+## 갱신 (2026-11-20): 로컬에서는 적용 보류 **[사용자 결정]** U30
+- 호스팅이 MacBook 위 Lima VM으로 바뀌었다 (ADR-0014). VM은 운영자 Mac 안에 있으므로 관리 경로는 다음 두 가지로 충분하다.
+  - kube API: Lima 포트 포워드 guest 6443 → Mac `127.0.0.1:6443` (Mac 루프백 전용, LAN에 노출되지 않음)
+  - 셸: `limactl shell` (Lima가 관리하는 SSH, Mac `127.0.0.1` 전용)
+- 그래서 로컬에서는 Tailscale을 설치·로그인하지 않는다. 의존성과 공격 표면이 가장 작고, OCI로 옮길 때 이 ADR을 그대로 되살리면 된다.
+- 설계 원칙 "외부에 열리는 포트는 80/443뿐"은 로컬에서 "인바운드 공개 포트 0개, 공개 경로는 Cloudflare 터널 하나"로 바뀌었다 (ADR-0015, 설계 문서 §11.1).
+- 비교표의 Cloudflare Tunnel 행 "DuckDNS로는 어려움"은 개인 도메인이 생기면서 사실이 아니게 됐다. 다만 Cloudflare 터널은 **공개 서비스** 경로로만 쓰고, 관리 포트(22, 6443)는 터널로 노출하지 않는다 (터널 설정 감사로 확인).
+- 비상 경로 갱신: 기존 "OCI 콘솔 시리얼"은 로컬에서 해당 없음. Lima VM은 Mac에서 `limactl` 명령으로 직접 다룬다.
