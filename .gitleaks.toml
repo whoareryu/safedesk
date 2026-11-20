@@ -1,0 +1,47 @@
+title = "secure-ax-k3s gitleaks config"
+
+[extend]
+useDefault = true
+
+# Test fixtures hold deliberately fake secrets. The fixture test
+# (tests/scripts/test_gitleaks_rules.sh) strips the line below (marker:
+# FIXTURE-ALLOWLIST) so the rules are still exercised for real.
+[allowlist]
+paths = ['''tests/scripts/fixtures/gitleaks/'''] # FIXTURE-ALLOWLIST
+
+# DuckDNS token (UUID), keyword-anchored: flagged only when duckdns/token/api key/
+# secret appears earlier on the same line (up to 80 chars). Bare UUIDs are not flagged.
+[[rules]]
+id = "duckdns-token"
+description = "DuckDNS token (UUID near a duckdns/token/apikey keyword)"
+regex = '''(?i)(?:duckdns|token|api[_-]?key|secret)[^\n]{0,80}?\b([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
+secretGroup = 1
+keywords = ["duckdns", "token", "apikey", "api_key", "api-key", "secret"]
+
+# DuckDNS token in a YAML block: a "duckdns" line followed within 4 lines by a
+# UUID value (e.g. "duckdns:\n  key: <uuid>").
+[[rules]]
+id = "duckdns-token-block"
+description = "UUID within a few lines after a duckdns key"
+regex = '''(?i)duckdns[^\n]*(?:\n[^\n]*){0,4}?\n[ \t-]*[A-Za-z_-]+[ \t]*[:=][ \t]*["']?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b'''
+secretGroup = 1
+keywords = ["duckdns"]
+
+# DuckDNS token stored in a file named like duckdns-token / token.txt / ~/.duckdns:
+# any UUID inside a file whose path contains duckdns or token is flagged.
+[[rules]]
+id = "duckdns-token-file"
+description = "UUID in a file whose path mentions duckdns or token"
+path = '''(?i)(duckdns|token)'''
+regex = '''(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b'''
+
+# Tailscale keys: tskey-auth-/client-/api-, legacy tskey-<hex> and tskey-k<id>-<secret>.
+# Obvious documentation placeholders (tskey-auth-XXXX...) are allowlisted.
+[[rules]]
+id = "tailscale-auth-key"
+description = "Tailscale auth/API/client key"
+regex = '''\btskey-[A-Za-z0-9-]{16,}'''
+keywords = ["tskey-"]
+[[rules.allowlists]]
+description = "documentation placeholders"
+regexes = ['''(?i)^tskey-(?:[a-z]+-)?(?:x+|\*+|0+)[x*0-]*$''']

@@ -1,0 +1,14 @@
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        args: ["--config=.gitleaks.toml"]
+  - repo: local
+    hooks:
+      - id: check-cluster-values
+        name: forbid local cluster.env values in staged changes
+        entry: scripts/hooks/check-cluster-values.sh
+        language: system
+        pass_filenames: false
+        always_run: true

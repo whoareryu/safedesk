@@ -1,0 +1,16 @@
+# Local cluster config (real values live here, never committed)
+config/cluster.env
+*.env
+*.env.*
+!*.env.example
+.env*
+!.env.example
+*.kubeconfig
+kubeconfig*
+k3s.yaml
+*.pem
+*.key
+docs/evidence/**/raw/
+
+# Local agent scratch workspace
+.superpowers/
