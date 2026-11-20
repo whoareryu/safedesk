@@ -3,12 +3,6 @@ title = "secure-ax-k3s gitleaks config"
 [extend]
 useDefault = true
 
-# Test fixtures hold deliberately fake secrets. The fixture test
-# (tests/scripts/test_gitleaks_rules.sh) strips the line below (marker:
-# FIXTURE-ALLOWLIST) so the rules are still exercised for real.
-[allowlist]
-paths = ['''tests/scripts/fixtures/gitleaks/'''] # FIXTURE-ALLOWLIST
-
 # DuckDNS token (UUID), keyword-anchored: flagged only when duckdns/token/api key/
 # secret appears earlier on the same line (up to 80 chars). Bare UUIDs are not flagged.
 [[rules]]
