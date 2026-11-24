@@ -283,12 +283,18 @@
 - Produces:
   - `bootstrap.sh` (VM, root, 멱등): unattended-upgrades, `sshd_config.d/99-hardening.conf`, `systemd-timesyncd`. **방화벽 코드 없음** (Q13). Lima 전용 명령 없음.
   - `scripts/verify/lib/listeners.sh`:
-    - `lima_listeners <lsof_file>` — `lsof -nP -iTCP -sTCP:LISTEN` 또는 `lsof -nP -iUDP` 출력에서 COMMAND가 `limactl` 또는 `ssh`인 줄의 주소(`127.0.0.1:6443` 형식)를 정렬·중복 제거해 한 줄에 하나씩 출력.
+    - `lima_listeners <lsof_file> [<pid_file>]` — `lsof -nP -iTCP -sTCP:LISTEN` 또는 `lsof -nP -iUDP` 출력에서 COMMAND가 `limactl` 또는 `ssh`인 줄의 주소(`127.0.0.1:6443` 형식)를 C 로캘로 정렬·중복 제거해 한 줄에 하나씩 출력. **바인드/리슨 소켓만**: NAME에 `->`가 든 연결된 소켓 줄(예: 바깥으로 나가는 UDP `a->b`)과 상태가 `(LISTEN)`이 아닌 TCP 줄은 라이브러리 안에서 버린다 (상대 주소가 출력에 섞이지 않음). 선택 인자 `<pid_file>`(한 줄에 PID 하나)을 주면 lsof의 PID 열이 그 목록에 있는 줄만 남긴다 (COMMAND 조건과 함께; 빈 파일이면 빈 출력). 인자 하나일 때는 위 두 규칙 외에는 기존 동작 그대로라 Step 1 fixture가 그대로 성립한다. *(수정 1회차, 사용자 결정)*
+    - `nmap_port_totals <gnmap_file>` — `Ports`/`Ignored State` 필드가 있는 `Host:` 줄마다 nmap이 다룬 포트 수(나열된 항목 + `Ignored State` 개수)를 출력. 전 범위(`-p-`) 단일 호스트 스캔이면 `65535`. *(수정 1회차 추가)*
     - `guest_listeners <ss_file>` — `ss -Hltnu` 출력에서 `proto addr:port`를 정렬해 출력 (기록용).
     - `open_tcp_ports <gnmap_file>` — nmap `-oG` 출력의 `Ports:` 필드에서 `open` TCP 포트만 오름차순, 한 줄에 하나씩 출력 (`filtered`·`closed` 제외).
   - `m1-lan-scan.sh --vm-off <gnmap> --vm-on <gnmap> [--control-port 18090]` — Mac에서 실행. **같은 LAN의 다른 실제 기기**(기본 증거) 또는 대체 수단인 Mac의 **Docker 컨테이너**(nmap 이미지, digest 고정)에서 Mac LAN IP를 스캔한 두 결과(VM 꺼짐/켜짐)를 비교한다 (S1 대체 증거). 스캔 명령: `nmap -n -Pn -p- -T4 -oG <파일> <LAN_IP>`. 증거 파일 머리에 스캔한 기기 종류(기기 이름·IP는 적지 않음), 대조 포트, 방화벽 허용 여부를 적는다. Docker로 스캔했다면 "실제 LAN이 아니라 Docker Desktop VM 네트워크를 거쳤을 수 있다"는 한계 문장이 머리에 있어야 하며, `m1-lan-scan.sh`는 머리의 `scanner: docker`이면 그 문장이 있는지 확인한다 (없으면 FAIL).
   - `m1-exposure.sh [--stage base|k3s|tunnel]` — Mac에서 실행. 단계별 기대 Mac 리스너: `base` = Lima SSH 포트(있으면), `k3s`·`tunnel` = 여기에 `127.0.0.1:6443` 추가. SSH 포트는 `limactl list --json`의 SSH 로컬 포트로 얻고, 값이 없으면(vsock SSH) 기대 목록에서 뺀다.
   - `scripts/verify/lib/scrub.sh`: `scrub_evidence <file>` — 제자리 치환. Mac 호스트 이름(`scutil --get LocalHostName`, `scutil --get ComputerName`, `hostname -s`), `$HOME`과 사용자 이름(`/Users/<name>` → `/Users/<user>`), MAC 주소(`xx:xx:xx:xx:xx:xx` → `<MAC>`), `LAN_IP`·`GUEST_IP`·집 IP, `TUNNEL_ID`, 32자리 16진 ID를 자리표시자로 바꾼다. `scripts/verify/check-evidence-clean.sh <file...>` — 위 값과 IP·UUID·이메일·토큰 모양이 남아 있으면 종류만 출력하고 exit 1 (값은 출력하지 않음). 이후 Task의 모든 텍스트 증거는 저장 전에 `scrub_evidence`를 거친다.
+
+- **계획과 달라진 점 (Task 3 수정 1회차, 사용자 결정) — 파트 A:**
+  - `lima_listeners`: 위 인터페이스 변경(선택 `<pid_file>`, `->` 연결 소켓·비 LISTEN TCP 줄 제거). Lima 2.2 실제 출력 모양(호스트 에이전트 DNS 포트, 연결된 UDP `a->b`, `[::1]:6443`, ESTABLISHED/CLOSE_WAIT, 다른 PID의 `*:53`/`*:10250`)을 담은 fixture(가짜 값)를 추가했다. `open_tcp_ports`는 탭이 공백으로 바뀐 `-oG` 파일도 읽는다.
+  - `scrub_evidence`/`check-evidence-clean`: 한 awk 엔진을 함께 쓴다 (검사 = "치환이 바꿀 종류" + IPv4·이메일·토큰). 추가 범위: IPv6 모양(전역 `2000::/3`, ULA `fc00::/7`, 링크로컬 `fe80::/10` → `<IPV6>`, EUI-64는 종류 `mac`; `::`, `::1`, 멀티캐스트, `2001:db8::/32`, `fe80::1` 같은 작은 인터페이스 ID는 허용), MAC 모든 흔한 형태(`a:b:c:d:e:f` 0 생략, `AA-BB-…`, `aabb.ccdd.eeff`), 호스트 이름·실명 변형(곧은/굽은/빠진 아포스트로피, `\ `, `%20`, `\032`, `-`, 공백 제거, URL 인코딩, 대소문자 무시)과 `id -F` 실명(및 3자 이상 단어, MacBook/Pro/월·요일 등 불용어 제외), 사용자 이름 대소문자 무시·글자 경계(`name_x`, `name2`도 잡음). env IP는 숫자 경계로만 치환(`a.b.c.250`에 `<LAN_IP>0` 없음)하고 대시 형태(`ip-a-b-c-d`)도 치환한다. 버전 문자열 예외는 `v` 뒤와 1~3단 버전+대시 뒤(`6.8.0-1.2.3.4`)로 좁혔다 (`host-a.b.c.d`, `a_…`, 범위 `a.b.c.d-e.f.g.h`의 둘째 주소, `ip-a-b-c-d`는 IP). 자리표시자나 `/Users/` 안에 들어 있는 이름(host, mac, user, lan 등)은 치환·검사에서 뺀다 (멱등성). 모양 치환이 이름 치환보다 먼저 돈다.
+  - 공개 IP 허용 목록 파일 `config/evidence-public-ips.txt`(커밋, 지금은 비어 있음, Task 5에서 apex/www·리졸버 주소를 채움). 한 줄에 주소 또는 CIDR, 사설·루프백·링크로컬·CGNAT·ULA 항목은 rc 2로 거부. `EVIDENCE_PUBLIC_IPS_FILE`로 바꿀 수 있다 (테스트).
 
 - [ ] **Step 1: 실패하는 테스트 작성** `test_listeners_parse.sh`. fixture:
   - `limactl` 리스너 `127.0.0.1:6443`, `127.0.0.1:60022`와 무관한 프로세스(`rapportd *:49152`) → `127.0.0.1:6443`, `127.0.0.1:60022` 두 줄

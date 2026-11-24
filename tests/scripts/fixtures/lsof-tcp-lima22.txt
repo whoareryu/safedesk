@@ -1,0 +1,10 @@
+COMMAND     PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+ControlCe   701 demo    9u  IPv4 0x1a2b3c4d5e6f7b01      0t0  TCP *:7000 (LISTEN)
+limactl    5101 demo   12u  IPv4 0x1a2b3c4d5e6f7b02      0t0  TCP 127.0.0.1:51234 (LISTEN)
+limactl    5101 demo   24u  IPv4 0x1a2b3c4d5e6f7b03      0t0  TCP 127.0.0.1:51233 (LISTEN)
+limactl    5101 demo   30u  IPv6 0x1a2b3c4d5e6f7b04      0t0  TCP [::1]:6443 (LISTEN)
+limactl    5101 demo   31u  IPv4 0x1a2b3c4d5e6f7b05      0t0  TCP 127.0.0.1:51233->127.0.0.1:51240 (ESTABLISHED)
+ssh        5150 demo    4u  IPv4 0x1a2b3c4d5e6f7b06      0t0  TCP 127.0.0.1:51240->127.0.0.1:51233 (ESTABLISHED)
+ssh        5150 demo    6u  IPv4 0x1a2b3c4d5e6f7b07      0t0  TCP 127.0.0.1:51250 (CLOSE_WAIT)
+limactl    6200 demo   10u  IPv4 0x1a2b3c4d5e6f7b08      0t0  TCP *:53 (LISTEN)
+ssh        6250 demo    5u  IPv6 0x1a2b3c4d5e6f7b09      0t0  TCP *:10250 (LISTEN)

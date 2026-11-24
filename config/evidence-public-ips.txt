@@ -1,0 +1,13 @@
+# Public IP addresses that may appear in committed evidence (docs/evidence/,
+# docs/cost/). check-evidence-clean.sh and scrub_evidence leave these alone;
+# every other non-documentation IPv4 / global IPv6 address is treated as a leak.
+#
+# Format: one address or CIDR per line, '#' starts a comment.
+#   IPv4: a.b.c.d or a.b.c.d/n (n 8-32)
+#   IPv6: global unicast (2000::/3) address or prefix/n (n a multiple of 4, >= 16)
+# Private, loopback, link-local, CGNAT and ULA entries are rejected (rc 2):
+# this list is for addresses that are public by nature (e.g. resolver, CDN edge,
+# the Vercel apex/www records), never for the home, LAN or guest address.
+#
+# Intentionally empty for now; Task 5 (DNS baseline) adds the apex/www and
+# resolver addresses it records, each with a comment naming its source.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016  # bash -c bodies: $1/$2 expand in the inner shell, as intended
 # Test scripts/verify/lib/scrub.sh and scripts/verify/check-evidence-clean.sh.
 # All "private" values are fabricated at run time; nothing real is committed.
 set -u
@@ -24,9 +25,37 @@ hex32="$(printf '%08x' $((RANDOM * RANDOM)))$(printf '%08x' $((RANDOM * RANDOM))
 email="zz$n@private-mail.test"
 token="ghp_$(printf 'A1b2C3d4E5f6G7h8I9j0%s' "$n")"
 
+# Fabricated macOS identity behind PATH shims (scutil, hostname, id): the default
+# ComputerName has a curly apostrophe and the owner's real name in it.
+fakefirst="Zq$n"
+fakelast="Kimora"
+fakereal="$fakefirst $fakelast"
+fakecomputer="$fakefirst ${fakelast}’s MacBook Pro"
+fakelocal="$fakefirst-${fakelast}s-MacBook-Pro"
+shim="$tmp/shim"
+mkdir -p "$shim"
+cat >"$shim/scutil" <<SH
+#!/bin/sh
+case "\$2" in
+  LocalHostName) echo "$fakelocal" ;;
+  ComputerName) echo "$fakecomputer" ;;
+  *) exit 1 ;;
+esac
+SH
+cat >"$shim/hostname" <<SH
+#!/bin/sh
+case "\${1:-}" in -s) echo "$fakelocal" ;; *) echo "$fakelocal.local" ;; esac
+SH
+cat >"$shim/id" <<SH
+#!/bin/sh
+case "\${1:-}" in -un) echo "$fakeuser" ;; -F) echo "$fakereal" ;; *) exit 1 ;; esac
+SH
+chmod +x "$shim/scutil" "$shim/hostname" "$shim/id"
+
 # Environment as the real scripts see it, with fabricated values.
 run_in_env() {
   (
+    export PATH="$shim:$PATH"
     export HOME="/Users/$fakeuser" USER="$fakeuser" EVIDENCE_EXTRA_HOSTNAMES="$fakehost"
     export LAN_IP="$lan_ip" GUEST_IP="$guest_ip" HOME_IP="$home_ip" TUNNEL_ID="$uuid"
     "$@"
@@ -50,8 +79,8 @@ f="$tmp/dirty.txt"
   echo "other id $hex32"
   echo "keep 127.0.0.1:6443 0.0.0.0:22 sha256 $(printf 'ab%.0s' $(seq 1 32))"
 } >"$f"
-assert_fails_with "dirty file is detected before scrubbing" --rc 1 --match '^check-evidence-clean: ' -- \
-  "$CHECK" "$f"
+assert_fails_with "evidence leak detected" --rc 1 --match '^check-evidence-clean: (hostname|user-path|mac|ip|uuid)' -- \
+  check "$f"
 scrub "$f"
 for v in "$fakehost" "$fakeuser" "$fakemac" "$lan_ip" "$guest_ip" "$home_ip" "$uuid" "$hex32" "someoneelse"; do
   assert_fails_with "scrubbed file no longer contains a private value" --rc 1 -- grep -Fiq -- "$v" "$f"
@@ -113,6 +142,119 @@ Host: <LAN_IP> ()	Ports: 22/open/tcp//ssh///
 author Whoareryu <12345+whoareryu@users.noreply.github.com> admin@example.invalid
 E
 assert_succeeds "allowed content passes the check" -- check "$ok"
+
+# --- IPv6 (I2): global, ULA, link-local (EUI-64 = mac) -----------------------
+g6="2600:1700:$(printf '%x' $((RANDOM % 4096 + 4096))):1234:aaaa:bbbb:cccc:dddd"
+ula="fd7a:115c:a1e0:$(printf '%x' $((RANDOM % 4096 + 4096)))::1"
+ll_eui="fe80::1c2b:3cff:fe4d:$(printf '%x' $((RANDOM % 4096 + 4096)))%en0"
+ll_plain="fe80::a1b2:c3d4:e5f6:$(printf '%x' $((RANDOM % 4096 + 4096)))"
+guest_ll="[fe80::5054:ff:fe12:$(printf '%x' $((RANDOM % 4096 + 4096)))]:546"
+expect_leak ip "inet6 $g6 prefixlen 64" "$g6"
+expect_leak ip "vpn $ula" "$ula"
+expect_leak mac "inet6 $ll_eui" "$ll_eui"
+expect_leak ip "inet6 $ll_plain" "$ll_plain"
+expect_leak mac "udp $guest_ll" "$guest_ll"
+
+# --- MAC forms (I3) -----------------------------------------------------------
+mac_short="a4:83:e7:$((RANDOM % 9 + 1)):2:3"
+mac_dash="A4-83-E7-$(printf '%02X' $((RANDOM % 256)))-02-03"
+mac_dot="a483.e7$(printf '%02x' $((RANDOM % 256))).0203"
+expect_leak mac "? (10.0.0.1) at $mac_short on en0" "$mac_short"
+expect_leak mac "adapter $mac_dash" "$mac_dash"
+expect_leak mac "cisco $mac_dot" "$mac_dot"
+
+# --- host-name and real-name variants (I4) ------------------------------------
+v_straight="$fakefirst ${fakelast}'s MacBook Pro"
+v_noapos="$fakefirst ${fakelast}s MacBook Pro"
+v_escaped="$fakefirst\\ ${fakelast}’s\\ MacBook\\ Pro"
+v_url="$fakefirst%20$fakelast%E2%80%99s%20MacBook%20Pro"
+v_lower="$(printf '%s' "$fakecomputer" | tr '[:upper:]' '[:lower:]')"
+expect_leak hostname "name $fakecomputer" "$fakecomputer"
+expect_leak hostname "name $v_straight" "$v_straight"
+expect_leak hostname "name $v_noapos" "$v_noapos"
+expect_leak hostname "path $v_escaped" "$v_escaped"
+expect_leak hostname "url $v_url" "$v_url"
+expect_leak hostname "name $v_lower" "$v_lower"
+expect_leak user "owner $fakereal" "$fakereal"
+expect_leak user "surname $fakelast only" "$fakelast"
+expect_leak user "login $(printf '%s' "$fakeuser" | tr '[:lower:]' '[:upper:]')" "$fakeuser"
+expect_leak user "file ${fakeuser}_x" "$fakeuser"
+expect_leak user "file ${fakeuser}2" "$fakeuser"
+
+f="$tmp/variants.txt"
+{
+  echo "1 $fakecomputer"; echo "2 $v_straight"; echo "3 $v_noapos"; echo "4 $v_escaped"
+  echo "5 $v_url"; echo "6 $v_lower"; echo "7 $fakereal"; echo "8 $fakelast"
+  echo "9 ${fakeuser}_x ${fakeuser}2 $(printf '%s' "$fakeuser" | tr '[:lower:]' '[:upper:]')"
+  echo "10 $g6 $ula $ll_eui $ll_plain udp $guest_ll"
+  echo "11 $mac_short $mac_dash $mac_dot"
+  echo "12 keep [::1]:6443 [::]:22 :: ff02::fb fe80::1%lo0 2001:db8::7 12:34:56 std::string Mon Jun  1"
+} >"$f"
+scrub "$f"
+for v in "$fakecomputer" "$v_straight" "$v_noapos" "$v_escaped" "$v_url" "$fakereal" "$fakelast" "$fakefirst" \
+  "$fakeuser" "$g6" "$ula" "$ll_eui" "$ll_plain" "$guest_ll" "$mac_short" "$mac_dash" "$mac_dot"; do
+  assert_fails_with "variant scrubbed" --rc 1 -- grep -Fiq -- "$v" "$f"
+done
+assert_succeeds "check passes after scrubbing variants" -- check "$f"
+assert_contains "$(cat "$f")" "keep [::1]:6443 [::]:22 :: ff02::fb fe80::1%lo0 2001:db8::7 12:34:56 std::string Mon Jun  1" \
+  "loopback/unspecified/multicast/doc IPv6, times and C++ scopes are kept"
+assert_contains "$(cat "$f")" "10 <IPV6> <IPV6> <IPV6> <IPV6> udp [<IPV6>]:546" \
+  "each IPv6 (zone id included) becomes <IPV6>, surrounding text and port kept"
+assert_contains "$(cat "$f")" "11 <MAC> <MAC> <MAC>" "each MAC form becomes <MAC>"
+cp "$f" "$tmp/variants2.txt"
+scrub "$tmp/variants2.txt"
+assert_succeeds "variant scrub is idempotent" -- cmp -s "$f" "$tmp/variants2.txt"
+
+# --- env IPs replaced on numeric boundaries only (M1) ------------------------
+f="$tmp/m1.txt"
+echo "mac 10.77.5.25 neighbour 10.77.5.250 dashed ip-10-77-5-25" >"$f"
+# shellcheck disable=SC2016
+run_in_env env LAN_IP=10.77.5.25 bash -c '. "$1/scripts/verify/lib/scrub.sh" && scrub_evidence "$2"' _ "$ROOT" "$f"
+assert_eq "mac <LAN_IP> neighbour 10.77.5.250 dashed ip-<LAN_IP>" "$(cat "$f")" \
+  "LAN_IP is not replaced inside a longer address; dashed form is replaced"
+
+# --- IPv4 glued to words or dashes is still an IP (M2) -----------------------
+expect_leak ip "name host-$other_ip" "$other_ip"
+expect_leak ip "flag -$other_ip" "$other_ip"
+expect_leak ip "range 192.0.2.1-$other_ip" "$other_ip"
+expect_leak ip "var a_$other_ip" "$other_ip"
+dashed="ip-$(printf '%s' "$other_ip" | tr . -)"
+expect_leak ip "aws $dashed" "$dashed"
+
+# --- names that occur in placeholders or ordinary words (M3) -----------------
+f="$tmp/m3.txt"
+echo "hostname <HOSTNAME> macOS <MAC> /Users/someoneelse/x userspace" >"$f"
+# shellcheck disable=SC2016
+m3() { run_in_env env EVIDENCE_EXTRA_HOSTNAMES="host mac user" "$@"; }
+m3 bash -c '. "$1/scripts/verify/lib/scrub.sh" && scrub_evidence "$2"' _ "$ROOT" "$f"
+assert_eq "hostname <HOSTNAME> macOS <MAC> /Users/<user>/x userspace" "$(cat "$f")" \
+  "names contained in placeholders/Users are skipped; /Users/<other> replaced by shape"
+cp "$f" "$tmp/m3b.txt"
+m3 bash -c '. "$1/scripts/verify/lib/scrub.sh" && scrub_evidence "$2"' _ "$ROOT" "$tmp/m3b.txt"
+assert_succeeds "scrub idempotent with placeholder-like names" -- cmp -s "$f" "$tmp/m3b.txt"
+assert_succeeds "check passes with placeholder-like names" -- m3 "$CHECK" "$f"
+
+# --- public IP allowlist file (M5) -------------------------------------------
+pub="$tmp/pub.txt"
+f="$tmp/public.txt"
+echo "edge 1.1.1.1 apex 76.76.21.21 v6 2606:4700::1111" >"$f"
+expect_public() { run_in_env env EVIDENCE_PUBLIC_IPS_FILE="$pub" "$@"; }
+: >"$pub"
+assert_fails_with "public IPs are leaks without an allowlist entry" --rc 1 --match '^check-evidence-clean: ip ' -- \
+  expect_public "$CHECK" "$f"
+printf '# test allowlist\n1.1.1.1\n76.76.21.0/24   # apex\n2606:4700::/32\n' >"$pub"
+assert_succeeds "allowlisted public IPs pass" -- expect_public "$CHECK" "$f"
+cp "$f" "$tmp/public2.txt"
+# shellcheck disable=SC2016
+expect_public bash -c '. "$1/scripts/verify/lib/scrub.sh" && scrub_evidence "$2"' _ "$ROOT" "$f"
+assert_succeeds "scrub keeps allowlisted public IPs" -- cmp -s "$f" "$tmp/public2.txt"
+printf '192.168.0.0/16\n' >"$pub"
+assert_fails_with "private range in the allowlist is rejected" --rc 2 --match '^check-evidence-clean: bad public-IP allowlist entry' -- \
+  expect_public "$CHECK" "$f"
+printf 'not-an-ip\n' >"$pub"
+assert_fails_with "garbage in the allowlist is rejected" --rc 2 --match '^check-evidence-clean: bad public-IP allowlist entry' -- \
+  expect_public "$CHECK" "$f"
+assert_succeeds "committed allowlist file parses" -- run_in_env "$CHECK" "$ok"
 
 # --- usage errors --------------------------------------------------------------
 assert_fails_with "no files is a usage error" --rc 2 --match '^check-evidence-clean: usage' -- "$CHECK"
