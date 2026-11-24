@@ -25,10 +25,15 @@ TS_IP=100.64.0.9
 HOST_SAFEDESK=safedesk-test.example.invalid
 ACME_EMAIL="test@example.invalid"
 K3S_VERSION=v1.99.0+k3s1
+TARGET=local
+CF_ZONE=zone-test.example.invalid
+LIMA_INSTANCE=lima-test-vm
+TUNNEL_NAME=tunnel-test-name
+TUNNEL_ID=tunid-test-0123456789
 EMPTY=
 ENV
 
-assert_fails "fails when PUBLIC_IP value is staged" -- run_hook
+assert_fails_with "PUBLIC_IP blocked" --rc 1 --match 'value of PUBLIC_IP from config/cluster.env appears' -- run_hook
 out="$(run_hook 2>&1)"
 assert_contains "$out" "PUBLIC_IP" "message names the variable"
 leak=no
@@ -38,7 +43,21 @@ reset
 
 echo "mail test@example.invalid" >note.md
 git add note.md
-assert_fails "fails when ACME_EMAIL value is staged (quoted in env)" -- run_hook
+assert_fails_with "ACME_EMAIL blocked" --rc 1 --match 'value of ACME_EMAIL from config/cluster.env appears' -- run_hook
+reset
+
+echo "tunnel tunid-test-0123456789" >note.md
+git add note.md
+assert_fails_with "TUNNEL_ID blocked" --rc 1 --match 'value of TUNNEL_ID from config/cluster.env appears' -- run_hook
+out="$(run_hook 2>&1)"
+leak=no
+case "$out" in *tunid-test-0123456789*) leak=yes ;; esac
+assert_eq no "$leak" "TUNNEL_ID message does not print the value"
+reset
+
+echo "target local zone zone-test.example.invalid vm lima-test-vm tunnel tunnel-test-name" >note.md
+git add note.md
+assert_succeeds "TARGET CF_ZONE LIMA_INSTANCE TUNNEL_NAME are allowed" -- run_hook
 reset
 
 echo "host safedesk-test.example.invalid and v1.99.0+k3s1" >note.md

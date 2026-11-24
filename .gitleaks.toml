@@ -39,3 +39,36 @@ keywords = ["tskey-"]
 [[rules.allowlists]]
 description = "documentation placeholders"
 regexes = ['''(?i)^tskey-(?:[a-z]+-)?(?:x+|\*+|0+)[x*0-]*$''']
+
+# Cloudflare API token assigned without the word "cloudflare" nearby (gitleaks'
+# default cloudflare-* rules need that keyword): CF_API_TOKEN=<40+ chars> in env
+# files, or "api-token: <40+ chars>" in a Kubernetes Secret. Placeholders such
+# as <placeholder> or ${VAR} do not match (not in the token charset).
+[[rules]]
+id = "cloudflare-api-token-env"
+description = "Cloudflare API token in CF_API_TOKEN= or api-token: form"
+regex = '''(?i)\b(?:cf[_-]api[_-]token|api-token)["']?[ \t]*[:=][ \t]*["']?([A-Za-z0-9_-]{40,})\b'''
+secretGroup = 1
+keywords = ["cf_api_token", "cf-api-token", "api-token"]
+
+# cloudflared tunnel credentials JSON: the "TunnelSecret" value (base64).
+[[rules]]
+id = "cloudflared-tunnel-credentials"
+description = "cloudflared tunnel credentials file (TunnelSecret)"
+regex = '''"TunnelSecret"[ \t]*:[ \t]*"([A-Za-z0-9+/_-]{20,}={0,2})"'''
+secretGroup = 1
+keywords = ["tunnelsecret"]
+
+# Remotely-managed tunnel token: base64 of {"a":"<account>",... ; always starts eyJhIjoi.
+[[rules]]
+id = "cloudflared-tunnel-token"
+description = "cloudflared remotely-managed tunnel token"
+regex = '''\beyJhIjoi[A-Za-z0-9+/_-]{20,}={0,2}'''
+keywords = ["eyjhijoi"]
+
+# cloudflared origin certificate (cert.pem) from `cloudflared tunnel login`.
+[[rules]]
+id = "cloudflared-origin-cert"
+description = "cloudflared origin certificate (ARGO TUNNEL TOKEN PEM block)"
+regex = '''-----BEGIN ARGO TUNNEL TOKEN-----[A-Za-z0-9+/=\s-]{20,}?-----END ARGO TUNNEL TOKEN-----'''
+keywords = ["begin argo tunnel token"]

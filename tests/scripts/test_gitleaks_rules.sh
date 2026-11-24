@@ -45,6 +45,24 @@ printf 'key: %sk%s-%s\n' "$TS" "$(rnd 10)" "$(rnd 32)" >"$fx/positive/ts-kid.txt
 printf 'Example: tailscale up --auth-key=%sauth-%s\nor %sxxxx\n' "$TS" "$(printf 'X%.0s' $(seq 1 24))" "$TS" >"$fx/negative/ts-placeholder.md"
 printf 'metadata:\n  uid: %s\n' "$(uuid)" >"$fx/negative/uid.yaml"
 
+# Cloudflare positives. Values are runtime-generated; the base64 token prefix and
+# the PEM header are split so no complete secret-shaped literal exists here.
+b64() { head -c "$1" /dev/urandom | base64 | tr -d '\n=' ; }
+rndw() { LC_ALL=C tr -dc 'A-Za-z0-9_-' </dev/urandom | head -c "$1"; }
+CFT="$(rndw 40)"
+TOK="eyJh""Ijoi$(b64 150 | tr '+/' '-_')"
+printf 'CF_API_TOKEN=%s\n' "$CFT" >"$fx/positive/cf-env.txt"
+printf 'apiVersion: v1\nkind: Secret\nstringData:\n  api-token: %s\n' "$(rndw 40)" >"$fx/positive/cf-secret.yaml"
+printf '{"AccountTag":"%s","TunnelSecret":"%s=","TunnelID":"%s"}\n' "$(rnd 32)" "$(b64 32)" "$(uuid)" >"$fx/positive/tunnel-creds.json"
+printf 'TUNNEL_TOKEN=%s\n' "$TOK" >"$fx/positive/tunnel-token.env"
+printf -- '-----BEGIN ARGO ''TUNNEL TOKEN-----\n%s\n-----END ARGO TUNNEL TOKEN-----\n' "$(b64 220 | fold -w 64)" >"$fx/positive/origin-cert.txt"
+
+# Cloudflare negatives: template variable, placeholders, redacted
+# shellcheck disable=SC2016  # literal ${TUNNEL_ID}, not expanded
+printf 'tunnel: ${TUNNEL_ID}\ncredentials-file: /etc/cloudflared/${TUNNEL_ID}.json\n' >"$fx/negative/config.yml.tmpl"
+printf 'CF_API_TOKEN=<placeholder>\n' >"$fx/negative/cf-placeholder.env"
+printf '{"TunnelSecret": "<redacted>"}\n' >"$fx/negative/tunnel-redacted.json"
+
 # Config under test: the repo config as-is (it carries no path allowlist).
 assert_fails "repo config has no fixture allowlist" -- grep -q 'fixtures' "$ROOT/.gitleaks.toml"
 
@@ -63,6 +81,6 @@ for f in "$fx"/negative/*; do
   assert_eq no "$hit" "not flagged: $n"
 done
 
-assert_eq 12 "$(printf "%s\n" "$flagged" | grep -c .)" "exactly the 12 positive fixtures are flagged"
+assert_eq 17 "$(printf "%s\n" "$flagged" | grep -c .)" "exactly the 17 positive fixtures are flagged"
 
 assert_summary

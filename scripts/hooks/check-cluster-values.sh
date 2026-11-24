@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # pre-commit hook: fail if a non-public value from config/cluster.env appears in
-# staged added lines. Skips HOST_* and K3S_VERSION (public by design).
+# staged added lines. Skips the public-by-design vars (HOST_*, K3S_VERSION,
+# TARGET, CF_ZONE, LIMA_INSTANCE, TUNNEL_NAME); TUNNEL_ID and ACME_EMAIL stay checked.
 # Never prints the value, only the variable name. bash 3.2 compatible.
 set -u
 
@@ -21,7 +22,7 @@ while IFS= read -r line || [ -n "$line" ]; do
   value="${line#*=}"
   [ "$name" != "$line" ] || continue
   case "$name" in
-    HOST_* | K3S_VERSION) continue ;;
+    HOST_* | K3S_VERSION | TARGET | CF_ZONE | LIMA_INSTANCE | TUNNEL_NAME) continue ;;
     *[!A-Za-z0-9_]* | '') continue ;;
   esac
   value="${value%\"}"

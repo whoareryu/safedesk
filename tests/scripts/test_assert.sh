@@ -353,8 +353,10 @@ check_has "truncation is marked" "$out" "[truncated]"
 # load_env
 full="$TMP/full.env"
 cat > "$full" <<'EOE'
-PUBLIC_IP=203.0.113.10
-TS_IP=100.64.0.1
+TARGET=local
+CF_ZONE=zone.example.test
+LIMA_INSTANCE=vm-test
+TUNNEL_NAME=tunnel-test
 HOST_SAFEDESK=safedesk.example.test
 HOST_MINISHOP=minishop.example.test
 HOST_RELAY=relay.example.test
@@ -362,12 +364,12 @@ ACME_EMAIL=ops@example.test
 K3S_VERSION=v1.30.0+k3s1
 EXTRA_SECRET=shouldnotleak
 EOE
-out=$(CLUSTER_ENV_FILE="$full" bash -c ". '$ENV_LIB'; load_env; echo \"ok \$PUBLIC_IP\"" 2>&1; echo "rc=$?")
-check_has "load_env succeeds when all set" "$out" "ok 203.0.113.10"
+out=$(CLUSTER_ENV_FILE="$full" bash -c ". '$ENV_LIB'; load_env; echo \"ok \$CF_ZONE\"" 2>&1; echo "rc=$?")
+check_has "load_env succeeds when all set" "$out" "ok zone.example.test"
 check_has "load_env rc 0 when all set" "$out" "rc=0"
 
-out=$(CLUSTER_ENV_FILE="$full" bash -c ". '$ENV_LIB'; load_env; sh -c 'echo ip=\$PUBLIC_IP extra=\${EXTRA_SECRET-unset}'" 2>&1)
-check_has "required vars are exported to children" "$out" "ip=203.0.113.10"
+out=$(CLUSTER_ENV_FILE="$full" bash -c ". '$ENV_LIB'; load_env; sh -c 'echo zone=\$CF_ZONE extra=\${EXTRA_SECRET-unset}'" 2>&1)
+check_has "required vars are exported to children" "$out" "zone=zone.example.test"
 check_has "extra vars are not exported (M8)" "$out" "extra=unset"
 
 missing="$TMP/missing.env"
@@ -377,16 +379,16 @@ check_has "load_env missing var exits 2 (ambient value ignored)" "$out" "rc=2"
 check_has "load_env prints missing var name" "$out" "ACME_EMAIL"
 
 empty="$TMP/empty.env"
-sed 's/^TS_IP=.*/TS_IP=/' "$full" > "$empty"
+sed 's/^LIMA_INSTANCE=.*/LIMA_INSTANCE=/' "$full" > "$empty"
 out=$(CLUSTER_ENV_FILE="$empty" bash -c ". '$ENV_LIB'; load_env" 2>&1; echo "rc=$?")
 check_has "load_env empty var exits 2" "$out" "rc=2"
-check_has "load_env prints empty var name" "$out" "TS_IP"
+check_has "load_env prints empty var name" "$out" "LIMA_INSTANCE"
 
 ws="$TMP/ws.env"
-sed 's/^PUBLIC_IP=.*/PUBLIC_IP="   "/' "$full" > "$ws"
+sed 's/^CF_ZONE=.*/CF_ZONE="   "/' "$full" > "$ws"
 out=$(CLUSTER_ENV_FILE="$ws" bash -c ". '$ENV_LIB'; load_env" 2>&1; echo "rc=$?")
 check_has "load_env whitespace-only exits 2 (M9)" "$out" "rc=2"
-check_has "load_env prints whitespace-only var name" "$out" "PUBLIC_IP"
+check_has "load_env prints whitespace-only var name" "$out" "CF_ZONE"
 
 bad="$TMP/bad.env"
 { cat "$full"; echo 'BROKEN="unterminated'; } > "$bad"

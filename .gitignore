@@ -11,6 +11,10 @@ k3s.yaml
 *.pem
 *.key
 docs/evidence/**/raw/
+docs/evidence/**/cf-export-raw/
+.cloudflared/
+config/cloudflared/
+config/*.token
 
 # Local agent scratch workspace
 .superpowers/
