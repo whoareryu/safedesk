@@ -1,0 +1,33 @@
+# Lima VM definition for the secure-ax K3s node (Lima >= 2.0).
+#
+# WARNING: the local VM has no host firewall (Q13). Adding anything to
+# `networks` or changing the portForwards rules exposes the VM directly
+# (kubelet 10250, sshd 22, Traefik 80/443 ...) to the Mac or the LAN.
+# scripts/verify/m1-lima.sh checks these fields on every run.
+base: template:_images/ubuntu-24.04
+
+vmType: vz
+cpus: 2
+memory: 12GiB
+disk: 100GiB
+
+# No Mac directory is mounted into the VM.
+mounts: []
+# No vzNAT/shared/bridged networks: user-mode networking only.
+networks: []
+
+containerd:
+  system: false
+  user: false
+
+# First matching rule wins. Only guest 6443 -> Mac 127.0.0.1:6443 is
+# forwarded; the catch-all ignore stops Lima's guest agent from forwarding
+# Traefik 443, kubelet 10250, cloudflared metrics, LoadBalancer/NodePorts.
+portForwards:
+  - guestPort: 6443
+    hostIP: 127.0.0.1
+    hostPort: 6443
+  - guestIP: 0.0.0.0
+    guestIPMustBeZero: false
+    proto: any
+    ignore: true
