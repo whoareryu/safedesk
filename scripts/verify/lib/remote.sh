@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Run repo scripts inside the Lima VM. Source this file; bash 3.2 compatible.
 # Requires load_env to have exported LIMA_INSTANCE. The repo is NOT mounted in
-# the VM, so every file in scripts/lib/ and scripts/verify/lib/ plus the target
-# script are copied to a fresh per-run directory /tmp/secure-ax.XXXXXX in the
+# the VM, so every file in scripts/lib/, scripts/verify/lib/ and the top-level
+# files of scripts/host/ (NOT scripts/host/systemd/) plus the target script are copied to a fresh per-run directory /tmp/secure-ax.XXXXXX in the
 # VM (same relative layout, so `source "$HERE/../lib/x.sh"` paths still work).
 # The directory is removed after the run; parallel vm_run calls do not clash.
-# Only those two lib directories are copied: a VM-side script that sources
+# Only those directories are copied: a VM-side script that sources
 # anything else fails with "No such file" (FAIL, never a false PASS).
 #
 #   vm_run [--root] <script path relative to repo root> [args...]
@@ -28,7 +28,7 @@ _vm_sh() {
 
 vm_run() {
   local use_root=0 script rel f dest rc=0 copied=0
-  local libs=() verifylibs=()
+  local libs=() verifylibs=() hostfiles=()
   if [ "${1:-}" = "--root" ]; then
     use_root=1
     shift
@@ -54,8 +54,11 @@ vm_run() {
   for f in "$_REMOTE_REPO_ROOT"/scripts/verify/lib/* ; do
     [ -f "$f" ] && verifylibs+=("$f")
   done
+  for f in "$_REMOTE_REPO_ROOT"/scripts/host/* ; do
+    [ -f "$f" ] && hostfiles+=("$f")
+  done
   # shellcheck disable=SC2016
-  dest="$(_vm_sh 'd=$(mktemp -d /tmp/secure-ax.XXXXXX) && mkdir -p "$d/scripts/lib" "$d/scripts/verify/lib" "$d/$1" && printf "%s\n" "$d"' \
+  dest="$(_vm_sh 'd=$(mktemp -d /tmp/secure-ax.XXXXXX) && mkdir -p "$d/scripts/lib" "$d/scripts/verify/lib" "$d/scripts/host" "$d/$1" && printf "%s\n" "$d"' \
     "$(dirname -- "$rel")" | tail -n 1)" || return $?
   case "$dest" in
     /tmp/secure-ax.??????*) ;;
@@ -66,6 +69,7 @@ vm_run() {
   esac
   if limactl copy "${libs[@]}" "$LIMA_INSTANCE:$dest/scripts/lib/" &&
     limactl copy "${verifylibs[@]}" "$LIMA_INSTANCE:$dest/scripts/verify/lib/" &&
+    { [ "${#hostfiles[@]}" -eq 0 ] || limactl copy "${hostfiles[@]}" "$LIMA_INSTANCE:$dest/scripts/host/"; } &&
     limactl copy "$_REMOTE_REPO_ROOT/$rel" "$LIMA_INSTANCE:$dest/$rel"; then
     copied=1
   else

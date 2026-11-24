@@ -63,7 +63,7 @@ The second call also confirms passwordless sudo (`limactl shell "$LIMA_INSTANCE"
 
 ## Notes
 
-- The repo is not mounted in the VM; `vm_run` copies `scripts/lib/`, `scripts/verify/lib/` and the target script to a per-run `/tmp/secure-ax.XXXXXX` and removes it afterwards.
+- The repo is not mounted in the VM; `vm_run` copies `scripts/lib/`, `scripts/verify/lib/`, the top-level files of `scripts/host/` (not `scripts/host/systemd/`) and the target script to a per-run `/tmp/secure-ax.XXXXXX` and removes it afterwards.
 - Never add `networks`, `mounts` or portForward rules to "fix" connectivity. Ask first.
 
 ## LAN 스캔 (S1 대체 증거, 수동, Mac에서)
