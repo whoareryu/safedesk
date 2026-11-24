@@ -6,6 +6,7 @@
 | cloudflared | 2026.7.3 | built 2026-07-22 |
 | Lima base template | `template:_images/ubuntu-24.04` | image definition only, see below |
 | Ubuntu 24.04 server image (aarch64) | `release-20260705` | `sha256:7df0201546f75b8bcc1044594c806c35749421ad3c9bc1be2a3ab806cfae39cc`; used by `limactl create` on 2026-11-24 (guest `/etc/cloud/build.info` serial 20260705, kernel 6.8.0-134-generic) |
+| nmap scanner image (LAN-scan Docker fallback) | `docker.io/instrumentisto/nmap` (nmap 7.98) | `sha256:96f6ed194519b62421a1a1c57809e65a7f94d2aa1c8c25676f247e5e148c0827` (multi-arch index of `:latest` at pin time, arm64 verified with `nmap --version`); run only through `scripts/host/lan-scan-docker.sh` on Docker Desktop (context `desktop-linux`); constant `LAN_SCAN_NMAP_IMAGE` in `scripts/verify/lib/lan-scan.sh` |
 
 ## Why `template:_images/ubuntu-24.04` and not `template:ubuntu-24.04`
 

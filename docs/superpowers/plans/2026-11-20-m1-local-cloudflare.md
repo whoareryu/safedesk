@@ -296,6 +296,15 @@
   - `scrub_evidence`/`check-evidence-clean`: 한 awk 엔진을 함께 쓴다 (검사 = "치환이 바꿀 종류" + IPv4·이메일·토큰). 추가 범위: IPv6 모양(전역 `2000::/3`, ULA `fc00::/7`, 링크로컬 `fe80::/10` → `<IPV6>`, EUI-64는 종류 `mac`; `::`, `::1`, 멀티캐스트, `2001:db8::/32`, `fe80::1` 같은 작은 인터페이스 ID는 허용), MAC 모든 흔한 형태(`a:b:c:d:e:f` 0 생략, `AA-BB-…`, `aabb.ccdd.eeff`), 호스트 이름·실명 변형(곧은/굽은/빠진 아포스트로피, `\ `, `%20`, `\032`, `-`, 공백 제거, URL 인코딩, 대소문자 무시)과 `id -F` 실명(및 3자 이상 단어, MacBook/Pro/월·요일 등 불용어 제외), 사용자 이름 대소문자 무시·글자 경계(`name_x`, `name2`도 잡음). env IP는 숫자 경계로만 치환(`a.b.c.250`에 `<LAN_IP>0` 없음)하고 대시 형태(`ip-a-b-c-d`)도 치환한다. 버전 문자열 예외는 `v` 뒤와 1~3단 버전+대시 뒤(`6.8.0-1.2.3.4`)로 좁혔다 (`host-a.b.c.d`, `a_…`, 범위 `a.b.c.d-e.f.g.h`의 둘째 주소, `ip-a-b-c-d`는 IP). 자리표시자나 `/Users/` 안에 들어 있는 이름(host, mac, user, lan 등)은 치환·검사에서 뺀다 (멱등성). 모양 치환이 이름 치환보다 먼저 돈다.
   - 공개 IP 허용 목록 파일 `config/evidence-public-ips.txt`(커밋, 지금은 비어 있음, Task 5에서 apex/www·리졸버 주소를 채움). 한 줄에 주소 또는 CIDR, 사설·루프백·링크로컬·CGNAT·ULA 항목은 rc 2로 거부. `EVIDENCE_PUBLIC_IPS_FILE`로 바꿀 수 있다 (테스트).
 
+- **계획과 달라진 점 (Task 3 수정 1회차, 사용자 결정) — 파트 C:**
+  - (a) `m1-exposure.sh`의 Mac 리스너 검사는 이 인스턴스의 PID(`limactl list --json`의 `.dir`을 명령 줄에 가진 프로세스)로 범위를 좁힌다 (`lima_listeners <lsof> <pid_file>`). 다른 limactl/ssh 프로세스(예: Colima)의 비루프백 포트는 `WARN` 줄에 포트 번호만 출력한다 (경로·사용자 이름 없음).
+  - (b) TCP 기대 목록에 Lima 2.2 호스트 에이전트의 임의 `127.0.0.1` DNS TCP 포트(`ha.stderr.log`의 `Start tcp DNS listening on`)를 넣는다.
+  - (c) UDP는 "limactl UDP 소켓 없음" 대신 **바인드된 UDP 소켓 = 호스트 에이전트 UDP DNS 포트 정확히 하나**(`ha.stderr.log`의 `Start udp DNS listening on: 127.0.0.1:N`)로 판정한다. 연결된 `a->b` 소켓(바깥으로 나가는 NTP·DNS)은 리스너가 아니므로 `lima_listeners`가 버리고, 그 밖의 바인드된 UDP 소켓은 모두 FAIL이다.
+  - 프로브를 띄운 상태에서 TCP/UDP 목록을 다시 떠서 같은 기대값과 비교한다 (예상 밖 주소·포트로의 포워드 검출). guest IP·LAN IP를 먼저 구해 `GUEST_IP`·`LAN_IP`로 export한 뒤 guest 리스너 증거를 치환하고 `check-evidence-clean`으로 확인한다.
+  - `m1-lan-scan.sh`: 입력은 치환된 사본이라 모든 `Host:` 줄이 `Host: <LAN_IP> ()`여야 한다 (다른 주소·여러 대상 FAIL). 전 범위 증명: nmap 명령 줄에 `-n`, `-Pn`, `-p-`(또는 `-p1-65535`/`-p 1-65535`), `-oG`가 있고 `nmap_port_totals`가 각 `Host:` 줄에서 65535. 방화벽 허용 시 `firewall-python-resolved:`(실제 경로)도 기록·확인한다.
+  - Docker 대체 스캔: 런타임을 `docker --context desktop-linux`(Docker Desktop)로 고정하고 머리에 `docker-context:`·`docker-runtime:`·`nmap-image:`를 적는다. 한계 문장은 "스캔이 Mac 안(Docker Desktop VM)에서 출발해 실제 LAN 경로와 macOS 애플리케이션 방화벽을 거치지 않았다"로 바꿨다 (위 인터페이스의 "거쳤을 수 있다" 문장 대체). `--lan-ip`는 이 Mac의 `ifconfig` 주소여야 한다. 읽기 전용 사전 점검(`make lan-scan-guard`, 스캔 전 자동 실행): 어떤 limactl/ssh 프로세스(Lima·Colima 인스턴스, ssh 터널)든 비루프백 리스너를 가지면 FAIL. Colima는 스캔 시간 내내 꺼 둔다. `make lan-scan ... LAN_SCAN_ARGS=--dry-run`은 점검만 하고 스캔하지 않는다. nmap 이미지·digest는 `k8s/VERSIONS.md`에 기록했다.
+  - 런북 대조 리스너는 빈 임시 디렉터리를 서빙한다 (`--directory "$(mktemp -d)"`).
+
 - [ ] **Step 1: 실패하는 테스트 작성** `test_listeners_parse.sh`. fixture:
   - `limactl` 리스너 `127.0.0.1:6443`, `127.0.0.1:60022`와 무관한 프로세스(`rapportd *:49152`) → `127.0.0.1:6443`, `127.0.0.1:60022` 두 줄
   - `limactl`이 `*:443`에 바인드 → 출력에 `*:443` 포함 (검증 스크립트가 잡아야 함)

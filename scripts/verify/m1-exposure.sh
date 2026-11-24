@@ -44,6 +44,8 @@ cleanup() {
     _vm_sh 'f=/tmp/secure-ax-probe.$1.pid; [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"; rm -rf /tmp/secure-ax-probe.??????; true' "$p" >/dev/null 2>&1
   done
   rm -rf "$tmp"
+  # This trap replaces assert.sh's own cleanup of its state file.
+  rm -f "${ASSERT_STATE:-}"
 }
 trap cleanup EXIT
 
@@ -63,78 +65,101 @@ assert_succeeds "limactl list --json" -- sh -c 'limactl list --json "$1" >"$2" 2
 assert_succeeds "instance JSON valid" -- jq -e . "$tmp/inst.json"
 ssh_port="$(jq -r '.sshLocalPort // 0' "$tmp/inst.json" 2>/dev/null)"
 case "$ssh_port" in ''|0|null) ssh_port="" ;; esac
-: >"$tmp/expected.txt"
-[ -z "$ssh_port" ] || echo "127.0.0.1:$ssh_port" >>"$tmp/expected.txt"
-if [ "$stage" != base ]; then echo "127.0.0.1:6443" >>"$tmp/expected.txt"; fi
-sort -u "$tmp/expected.txt" -o "$tmp/expected.txt"
+: >"$tmp/expected-tcp.txt"
+[ -z "$ssh_port" ] || echo "127.0.0.1:$ssh_port" >>"$tmp/expected-tcp.txt"
+if [ "$stage" != base ]; then echo "127.0.0.1:6443" >>"$tmp/expected-tcp.txt"; fi
 
 # --- scope: only processes of THIS Lima instance ------------------------------
-# lima_listeners selects by COMMAND (limactl/ssh), so a second Lima user on the Mac
-# (e.g. Colima) would be mixed in. Restrict the lsof output to PIDs whose command
-# line references this instance's Lima directory (hostagent, ssh mux, ...).
+# A second Lima user on the Mac (e.g. Colima) also runs limactl/ssh. Scope by
+# PID: processes whose command line references this instance's Lima directory
+# (hostagent, ssh mux, ...); lima_listeners keeps only rows of those PIDs.
 inst_dir="$(jq -r '.dir // empty' "$tmp/inst.json" 2>/dev/null)"
 assert_succeeds "instance directory known" -- test -n "$inst_dir"
 ps -axww -o pid=,command= >"$tmp/ps.txt" 2>/dev/null
 assert_succeeds "ps captured" -- test -s "$tmp/ps.txt"
 awk -v d="$inst_dir/" 'index($0, d) > 0 {print $1}' "$tmp/ps.txt" >"$tmp/pids.txt"
 assert_succeeds "instance has running processes" -- test -s "$tmp/pids.txt"
-# Lima's host agent also runs its own DNS resolver on a random 127.0.0.1 TCP port
-# (and a UDP one), logged in ha.stderr.log. Loopback only; it joins the expectation.
-dns_tcp="$(sed -n 's/.*Start tcp DNS listening on: \(127\.0\.0\.1:[0-9]*\).*/\1/p' "$inst_dir/ha.stderr.log" 2>/dev/null | tail -n 1)"
+# Lima's host agent runs its own DNS resolver on a random 127.0.0.1 TCP port and a
+# random 127.0.0.1 UDP port, both logged in ha.stderr.log. Loopback only; they
+# are the ONLY extra sockets expected (TCP joins the list above; UDP below).
+dns_line() { sed -n "s/.*Start $1 DNS listening on: \(127\.0\.0\.1:[0-9]*\).*/\1/p" "$inst_dir/ha.stderr.log" 2>/dev/null | tail -n 1; }
+dns_tcp="$(dns_line tcp)"
+dns_udp="$(dns_line udp)"
 if [ -n "$dns_tcp" ]; then
-  echo "$dns_tcp" >>"$tmp/expected.txt"
-  sort -u "$tmp/expected.txt" -o "$tmp/expected.txt"
+  echo "$dns_tcp" >>"$tmp/expected-tcp.txt"
 else
-  echo "  note - no hostagent DNS listener line in ha.stderr.log; expecting none"
+  echo "  note - no hostagent TCP DNS listener line in ha.stderr.log; expecting none"
 fi
-# scope_lsof <in> <out>: keep the header line and rows whose PID is in pids.txt.
-scope_lsof() {
-  awk 'NR==FNR {pid[$1]=1; next} FNR==1 || ($2 in pid)' "$tmp/pids.txt" "$1" >"$2"
-}
-# note_foreign <lsof file> <label>: other limactl/ssh sockets on the Mac, informational.
-note_foreign() {
-  local n
-  n=$(awk 'NR==FNR {pid[$1]=1; next} FNR>1 && ($1=="limactl" || $1=="ssh") && !($2 in pid)' "$tmp/pids.txt" "$1" | wc -l | tr -d ' ')
-  if [ "$n" -gt 0 ]; then
-    echo "  note - $n $2 socket row(s) belong to other limactl/ssh processes (not this instance, e.g. another Lima user); not judged here"
+LC_ALL=C sort -u "$tmp/expected-tcp.txt" -o "$tmp/expected-tcp.txt"
+: >"$tmp/expected-udp.txt"
+if [ -n "$dns_udp" ]; then
+  echo "$dns_udp" >"$tmp/expected-udp.txt"
+else
+  echo "  note - no hostagent UDP DNS listener line in ha.stderr.log; expecting no UDP socket"
+fi
+
+# warn_foreign <lsof file> <label>: other limactl/ssh processes' NON-loopback
+# listeners (ports only; no addresses, paths or user names). Not judged here,
+# but they would distort a LAN scan (see the runbook's pre-scan guard).
+warn_foreign() {
+  local ports
+  lima_listeners "$1" >"$tmp/all-$2.txt" 2>/dev/null || return 0
+  lima_listeners "$1" "$tmp/pids.txt" >"$tmp/mine-$2.txt" 2>/dev/null || return 0
+  ports="$(LC_ALL=C comm -23 "$tmp/all-$2.txt" "$tmp/mine-$2.txt" | LC_ALL=C awk '
+    $0 ~ /^127\./ || $0 ~ /^\[::1\]:/ { next }
+    { n = split($0, p, ":"); print p[n] }' | LC_ALL=C sort -n -u | tr '\n' ' ')"
+  if [ -n "$ports" ]; then
+    echo "  WARN - other limactl/ssh processes (not this instance, e.g. Colima) hold non-loopback $2 listeners on port(s): ${ports% }"
   fi
 }
 
-# --- Mac TCP listeners -------------------------------------------------------
-assert_succeeds "lsof TCP listeners captured" -- sh -c 'lsof -nP -iTCP -sTCP:LISTEN >"$1" 2>"$2"' _ "$tmp/tcp.txt" "$tmp/tcp.err"
-assert_succeeds "TCP listener list not empty (macOS always has some)" -- test -s "$tmp/tcp.txt"
-scope_lsof "$tmp/tcp.txt" "$tmp/tcp-inst.txt"
-note_foreign "$tmp/tcp.txt" TCP
-assert_succeeds "lima_listeners (tcp, this instance)" -- bash -c '. "$1"; lima_listeners "$2" >"$3"' _ "$HERE/lib/listeners.sh" "$tmp/tcp-inst.txt" "$tmp/lima-tcp.txt"
-# Compare as text; both lists are sorted. File contents are not secret.
-assert_eq "$(cat "$tmp/expected.txt")" "$(cat "$tmp/lima-tcp.txt")" "limactl/ssh TCP listeners equal the $stage expectation"
+# check_mac_sockets <round>: Mac TCP listeners and UDP sockets of this instance
+# equal the expectation exactly, and none is bound off loopback.
+check_mac_sockets() {
+  local r="$1"
+  assert_succeeds "lsof TCP listeners captured ($r)" -- sh -c 'lsof -nP -iTCP -sTCP:LISTEN >"$1" 2>"$2"' _ "$tmp/tcp-$r.txt" "$tmp/tcp-$r.err"
+  assert_succeeds "TCP listener list not empty, macOS always has some ($r)" -- test -s "$tmp/tcp-$r.txt"
+  assert_succeeds "lima_listeners tcp, this instance ($r)" -- \
+    bash -c '. "$1"; lima_listeners "$2" "$3" >"$4"' _ "$HERE/lib/listeners.sh" "$tmp/tcp-$r.txt" "$tmp/pids.txt" "$tmp/lima-tcp-$r.txt"
+  assert_eq "$(cat "$tmp/expected-tcp.txt")" "$(cat "$tmp/lima-tcp-$r.txt")" "limactl/ssh TCP listeners equal the $stage expectation ($r)"
+  if [ -s "$tmp/lima-tcp-$r.txt" ]; then
+    assert_fails_with "no non-loopback limactl listener ($r)" --rc 1 -- grep -Ev '^127\.0\.0\.1:' "$tmp/lima-tcp-$r.txt"
+  else
+    skip "no limactl listener"
+  fi
+  assert_succeeds "lsof UDP captured ($r)" -- sh -c 'lsof -nP -iUDP >"$1" 2>"$2"' _ "$tmp/udp-$r.txt" "$tmp/udp-$r.err"
+  assert_succeeds "UDP socket list not empty, mDNS etc. ($r)" -- test -s "$tmp/udp-$r.txt"
+  # Connected ("a->b") sockets, e.g. the hostagent's outbound NTP/DNS, are dropped
+  # by lima_listeners: they only accept datagrams from their peer.
+  assert_succeeds "lima_listeners udp, this instance ($r)" -- \
+    bash -c '. "$1"; lima_listeners "$2" "$3" >"$4"' _ "$HERE/lib/listeners.sh" "$tmp/udp-$r.txt" "$tmp/pids.txt" "$tmp/lima-udp-$r.txt"
+  assert_eq "$(cat "$tmp/expected-udp.txt")" "$(cat "$tmp/lima-udp-$r.txt")" \
+    "bound limactl/ssh UDP sockets are exactly the hostagent DNS socket ($r)"
+  warn_foreign "$tmp/tcp-$r.txt" TCP
+  warn_foreign "$tmp/udp-$r.txt" UDP
+}
 
-# --- no non-loopback limactl listener ---------------------------------------
-if [ -s "$tmp/lima-tcp.txt" ]; then
-  assert_fails_with "no non-loopback limactl listener" --rc 1 -- grep -Ev '^127\.0\.0\.1:' "$tmp/lima-tcp.txt"
-else
-  skip "no limactl listener"
-fi
+# --- Mac listeners before the probes -------------------------------------------
+check_mac_sockets before
 
-# --- UDP ---------------------------------------------------------------------
-assert_succeeds "lsof UDP captured" -- sh -c 'lsof -nP -iUDP >"$1" 2>"$2"' _ "$tmp/udp.txt" "$tmp/udp.err"
-assert_succeeds "UDP socket list not empty (mDNS etc.)" -- test -s "$tmp/udp.txt"
-scope_lsof "$tmp/udp.txt" "$tmp/udp-inst.txt"
-note_foreign "$tmp/udp.txt" UDP
-assert_succeeds "lima_listeners (udp, this instance)" -- bash -c '. "$1"; lima_listeners "$2" >"$3"' _ "$HERE/lib/listeners.sh" "$tmp/udp-inst.txt" "$tmp/lima-udp.txt"
-# Lima's own hostagent keeps a loopback DNS UDP socket and outbound (connected,
-# "a->b") client sockets; neither is an inbound listener. Anything else is a leak:
-# a UDP socket bound to a non-loopback address.
-grep -Fv -- '->' "$tmp/lima-udp.txt" >"$tmp/lima-udp-bound.txt" || true
-if [ -s "$tmp/lima-udp-bound.txt" ]; then
-  assert_fails_with "no non-loopback limactl UDP socket" --rc 1 -- grep -Ev '^127\.0\.0\.1:' "$tmp/lima-udp-bound.txt"
-else
-  echo "  note - no bound limactl UDP socket at all (vacuously no non-loopback one)"
-fi
+# --- guest IP and Mac LAN IP (needed for the checks and for scrubbing) ---------
+assert_succeeds "guest global IPv4 listed" -- _vm_sh 'ip -4 -o addr show scope global >"$1"' /tmp/secure-ax-probe.addr
+guest_ip="$(_vm_sh 'awk "{print \$4}" /tmp/secure-ax-probe.addr | head -n 1 | cut -d/ -f1; rm -f /tmp/secure-ax-probe.addr' 2>/dev/null)"
+case "$guest_ip" in
+  [0-9]*.[0-9]*.[0-9]*.[0-9]*) assert_eq "ok" "ok" "guest IPv4 found" ;;
+  *) assert_eq "an IPv4 address" "none" "guest IPv4 found"; guest_ip="" ;;
+esac
+lan_iface="$(route -n get default 2>/dev/null | awk '/interface:/ {print $2; exit}')"
+lan_ip=""
+[ -z "$lan_iface" ] || lan_ip="$(ipconfig getifaddr "$lan_iface" 2>/dev/null || true)"
+# scrub_evidence reads these from the environment.
+[ -z "$guest_ip" ] || export GUEST_IP="$guest_ip"
+[ -z "$lan_ip" ] || export LAN_IP="$lan_ip"
 
 # --- VM listener record (documentation, not a control; taken BEFORE the probes) --
 assert_succeeds "guest ss -Hltnu captured" -- sh -c 'limactl shell --workdir /tmp "$1" -- sudo -n ss -Hltnu >"$2" 2>"$3"' _ "$LIMA_INSTANCE" "$tmp/ss.txt" "$tmp/ss.err"
 assert_succeeds "guest listener list not empty (sshd)" -- test -s "$tmp/ss.txt"
+assert_succeeds "guest IP known before writing evidence" -- test -n "$guest_ip"
 mkdir -p "$evdir"
 out="$evdir/guest-listeners-$stage.txt"
 {
@@ -142,15 +167,15 @@ out="$evdir/guest-listeners-$stage.txt"
   echo "# There is no host firewall in the VM: any non-loopback listener below is hidden from"
   echo "# the Mac and the LAN only by Lima 'networks: []' and the 6443-only port forward with"
   echo "# a catch-all ignore. m1-exposure.sh re-checks both behaviours on every run."
+  echo "# Private values are replaced by placeholders (<GUEST_IP>, <IPV6>, ...)."
   guest_listeners "$tmp/ss.txt"
 } >"$out"
 assert_succeeds "guest listener evidence written" -- test -s "$out"
-scrub_evidence "$out"
-assert_succeeds "guest listener evidence scrubbed" -- test -s "$out"
-
+assert_succeeds "guest listener evidence scrubbed" -- scrub_evidence "$out"
+assert_succeeds "guest listener evidence clean" -- "$HERE/check-evidence-clean.sh" "$out"
 
 # --- auto-forward negative check (with positive controls) --------------------
-assert_fails_with "Mac has no listener on 18080 before the probe" --rc 1 -- grep -Eq ':(18080|18081)[[:space:]]+\(LISTEN\)' "$tmp/tcp.txt"
+assert_fails_with "Mac has no listener on 18080/18081 before the probe" --rc 1 -- grep -Eq ':(18080|18081)[[:space:]]+\(LISTEN\)' "$tmp/tcp-before.txt"
 # The probe servers serve an empty scratch directory, never the VM home.
 start_probe() {
   # $1 port, $2 bind address
@@ -168,14 +193,11 @@ assert_fails_with "guest 0.0.0.0:18080 not forwarded" --rc 7 --match '^curl: \(7
   curl -sS --max-time 3 http://127.0.0.1:18080/
 assert_fails_with "guest 127.0.0.1:18081 not forwarded" --rc 7 --match '^curl: \(7\)' -- \
   curl -sS --max-time 3 http://127.0.0.1:18081/
+# A forward to an unexpected Mac address/port would show up as a new socket of
+# this instance, which the fixed 127.0.0.1:1808x curls above would miss.
+check_mac_sockets during-probes
 
 # --- guest IP not reachable from the Mac (the Q13 proof) ---------------------
-assert_succeeds "guest global IPv4 listed" -- _vm_sh 'ip -4 -o addr show scope global >"$1"' /tmp/secure-ax-probe.addr
-guest_ip="$(_vm_sh 'awk "{print \$4}" /tmp/secure-ax-probe.addr | head -n 1 | cut -d/ -f1; rm -f /tmp/secure-ax-probe.addr' 2>/dev/null)"
-case "$guest_ip" in
-  [0-9]*.[0-9]*.[0-9]*.[0-9]*) assert_eq "ok" "ok" "guest IPv4 found" ;;
-  *) assert_eq "an IPv4 address" "none" "guest IPv4 found"; guest_ip="" ;;
-esac
 if [ -n "$guest_ip" ]; then
   assert_succeeds "positive control: guest IP:18080 answers inside the VM" -- \
     _vm_sh 'curl -sS --max-time 5 -o /dev/null "http://$1:18080/"' "$guest_ip"
@@ -184,9 +206,6 @@ if [ -n "$guest_ip" ]; then
 fi
 
 # --- Mac LAN IP --------------------------------------------------------------
-lan_iface="$(route -n get default 2>/dev/null | awk '/interface:/ {print $2; exit}')"
-lan_ip=""
-[ -z "$lan_iface" ] || lan_ip="$(ipconfig getifaddr "$lan_iface" 2>/dev/null || true)"
 if [ -z "$lan_iface" ]; then
   skip "no LAN interface: no default route"
 elif [ -z "$lan_ip" ]; then
