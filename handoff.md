@@ -3,7 +3,7 @@
 > 사용자가 "handoff 확인해서 작업 진행해줘"라고 하면, 이 파일을 끝까지 읽고 **"다음 세션이 할 일"** 순서대로 바로 진행한다. 다시 기획하지 않는다. 결정이 필요한 지점에서는 멈추고 사용자에게 묻는다 (아래 §3 "결정 규칙").
 
 - 작성일: 2026-11-11, 갱신: 2026-11-24
-- 현재 상태: **M1 Task 1~3 완료.** Lima VM `secure-ax`(Ubuntu 24.04 release-20260705, 2 CPU / 12 GiB / 100 GiB, 마운트·추가 네트워크 없음, 6443만 포워드)가 만들어져 있고 하드닝(`bootstrap.sh`)이 적용됨. 노출 검사(`m1-exposure.sh --stage base`)와 LAN 스캔(Docker, VM 꺼짐/켜짐 비교) PASS, 증거는 `docs/evidence/m1/`. M1 실행 기준은 `docs/superpowers/plans/2026-11-20-m1-local-cloudflare.md`. 진행 원장은 `.superpowers/sdd/2026-11-20-m1-local-cloudflare/progress.md`(USER 줄 = 사용자 결정, M1 최종 리뷰로 미룬 사소 항목 포함). 다음 작업은 **M1 Task 4 (K3s 설치, API는 Mac `127.0.0.1:6443`만)**.
+- 현재 상태: **M1 Task 1~4 완료.** K3s v1.36.6+k3s1(secrets 암호화, API는 Mac `127.0.0.1:6443`만, kubeconfig `~/.kube/secure-ax.kubeconfig` 600) 설치·검증(`m1-k3s.sh` PASS). Lima VM `secure-ax`(Ubuntu 24.04 release-20260705, 2 CPU / 12 GiB / 100 GiB, 마운트·추가 네트워크 없음, 6443만 포워드)가 만들어져 있고 하드닝(`bootstrap.sh`)이 적용됨. 노출 검사(`m1-exposure.sh --stage base`)와 LAN 스캔(Docker, VM 꺼짐/켜짐 비교) PASS, 증거는 `docs/evidence/m1/`. M1 실행 기준은 `docs/superpowers/plans/2026-11-20-m1-local-cloudflare.md`. 진행 원장은 `.superpowers/sdd/2026-11-20-m1-local-cloudflare/progress.md`(USER 줄 = 사용자 결정, M1 최종 리뷰로 미룬 사소 항목 포함). 다음 작업은 **M1 Task 5 (Cloudflare 계정·비용 점검, DNS 기준선, DNS-01 토큰, cert-manager)** — 대시보드·토큰 생성은 사용자 수동 단계.
 - 이 Mac 환경 결정(2026-11-24): Colima 정지(외부 노출 `*:10250`, `*:53`), macOS 원격 로그인 끔(22가 LAN에 열려 있었음). LAN 스캔 전에는 Colima를 다시 꺼야 한다. `config/cluster.env`에 `TARGET=local`, `LIMA_INSTANCE=secure-ax`, `TUNNEL_NAME=safedesk-demo`, `K3S_VERSION=v1.36.6+k3s1`, ACME 이메일이 들어 있다(gitignore).
 
 ## 1. 프로젝트 한 줄 요약
@@ -44,19 +44,17 @@ AI 고객문의 서비스(SafeDesk)와 가벼운 데모 앱(MiniShop)이 같은 
   - 스크립트는 bash 3.2 호환
   - 기술을 선택할 때마다 선정 근거와 비교 대안을 남긴다
 
-## 4. 다음 세션이 할 일 — M1 Task 4: K3s 설치
+## 4. 다음 세션이 할 일 — M1 Task 5
 
-**기준은 계획 문서의 "Task 4"다.** 브리프는 `superpowers:subagent-driven-development`의 `scripts/task-brief <plan> 4`로 뽑는다.
+**기준은 계획 문서의 "Task 5"다.** 브리프는 `scripts/task-brief <plan> 5`로 뽑는다. 사용자 수동 단계(§3 목록: Billing·DNS 기준선 캡처, API 토큰을 키체인에 저장)가 많으니 해당 단계 직전에 안내하고 결과를 받는다.
 
-- 시작 전 확인: `limactl list`에서 `secure-ax`가 Running인지, `vm_run --root scripts/verify/m1-hardening.sh` PASS(부팅 직후엔 NTP 동기화를 몇 초 기다린다).
-- K3s 버전은 `v1.36.6+k3s1`(사용자 결정, `config/cluster.env`). 설치 스크립트 sha256 기록, `--secrets-encryption`, kubeconfig는 Mac `127.0.0.1:6443`만.
-- 끝나면 `m1-exposure.sh --stage k3s` PASS (Mac 리스너에 `127.0.0.1:6443` 추가).
-- 도구: `vm_run [--root]`(scripts/lib, scripts/verify/lib, scripts/host 최상위 파일을 VM /tmp로 복사해 실행), 증거는 저장 전 `scrub_evidence` → `check-evidence-clean`.
+- 시작 전 확인: `limactl list`(Running), `scripts/verify/m1-k3s.sh` PASS. 부팅 직후엔 NTP 동기화를 몇 초 기다린다.
+- Task 4 리뷰에서 미룬 사소 항목: install-k3s.sh 건너뛰기가 플래그 문자열 부분 일치(N1), Traefik 대조 검사가 404 고정이라 Task 6에서 라우트·리다이렉트를 넣으면 기대 코드 갱신 필요(N2).
 
-## 5. Task 4 다음
+## 5. Task 5 다음
 
 - Task 5 주의: `check-evidence-clean`이 공개 IP도 잡는다. Cloudflare·Vercel IP가 든 증거는 먼저 `config/evidence-public-ips.txt`에 /16 이하 대역이나 정확한 주소로 넣는다(사설 대역과 겹치거나 /16보다 넓으면 거부됨).
-- 개정 계획 순서: Task 5 Cloudflare 계정·비용 점검, DNS 기준선, DNS-01 토큰, cert-manager → Task 6 Traefik → Task 7 네임스페이스·PSA·default-deny(N5 없음) → Task 8 더미 앱·인증서 staging→prod → Task 9 cloudflared 터널 → Task 10 에지 통제 → Task 11 netmatrix → Task 12 통합 검증·VM 생명주기·`make demo-up`/`demo-down`.
+- 개정 계획 순서: Task 6 Traefik → Task 7 네임스페이스·PSA·default-deny(N5 없음) → Task 8 더미 앱·인증서 staging→prod → Task 9 cloudflared 터널 → Task 10 에지 통제 → Task 11 netmatrix → Task 12 통합 검증·VM 생명주기·`make demo-up`/`demo-down`.
 - **작업 끝날 때:** 이 `handoff.md`의 "현재 상태"와 "다음 세션이 할 일"을 다음 Task 기준으로 갱신하고, 진행 원장에도 기록한다.
 
 ## 6. 기억해 둘 사실 (조사로 확인됨)
