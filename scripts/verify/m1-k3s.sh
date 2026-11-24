@@ -30,7 +30,7 @@ assert_succeeds "kubeconfig server is https://127.0.0.1:6443" -- \
 assert_succeeds "kubectl get nodes" -- sh -c 'KUBECONFIG="$1" kubectl --request-timeout=15s get nodes -o json >"$2" 2>"$3"' _ "$M1_KUBECONFIG" "$tmp/nodes.json" "$tmp/nodes.err"
 assert_eq "1" "$(jq -r '.items | length' "$tmp/nodes.json" 2>/dev/null)" "exactly one node"
 assert_eq "True" "$(jq -r '.items[0].status.conditions[] | select(.type=="Ready") | .status' "$tmp/nodes.json" 2>/dev/null)" "node Ready"
-assert_succeeds "kubectl --request-timeout=15s version -o json" -- sh -c 'KUBECONFIG="$1" kubectl version -o json >"$2" 2>"$3"' _ "$M1_KUBECONFIG" "$tmp/version.json" "$tmp/version.err"
+assert_succeeds "kubectl --request-timeout=15s version -o json" -- sh -c 'KUBECONFIG="$1" kubectl --request-timeout=15s version -o json >"$2" 2>"$3"' _ "$M1_KUBECONFIG" "$tmp/version.json" "$tmp/version.err"
 assert_eq "$K3S_VERSION" "$(jq -r '.serverVersion.gitVersion' "$tmp/version.json" 2>/dev/null)" "server gitVersion equals K3S_VERSION"
 
 # --- guest-side: encryption, kubeconfig mode ----------------------------------
@@ -40,12 +40,13 @@ assert_succeeds "guest: secrets encryption enabled, k3s.yaml 600" -- vm_run --ro
 assert_succeeds "anonymous /version request reaches the API" -- \
   sh -c 'curl -sk --max-time 5 -o /dev/null -w "%{http_code}" https://127.0.0.1:6443/version >"$1"' _ "$tmp/code.txt"
 assert_eq "401" "$(cat "$tmp/code.txt" 2>/dev/null)" "anonymous /version is 401"
-# kubectl itself prompts for basic-auth credentials on a 401 ("Please enter
-# Username"), so the Unauthorized message of the brief never appears; an
-# anonymous curl on a real API path is the equivalent request and tool-pinned
-# (observed: curl 8.7.1 on the Mac exits 56, not 22, for a 401 under -f).
-assert_fails_with "anonymous API request denied" --rc 56 --match '^curl: \(56\) The requested URL returned error: 401' -- \
-  curl -sSkf --max-time 5 -o /dev/null https://127.0.0.1:6443/api/v1/namespaces
+# kubectl prompts for basic-auth credentials on a 401, so anonymous access is
+# checked with curl on a real API path: status 401 AND the API's own Status body
+# (reason Unauthorized). No -f: curl's exit code for HTTP errors differs by build.
+assert_succeeds "anonymous /api/v1/namespaces request reaches the API" -- \
+  sh -c 'curl -sk --max-time 5 -o "$1" -w "%{http_code}" https://127.0.0.1:6443/api/v1/namespaces >"$2"' _ "$tmp/ns.json" "$tmp/ns.code"
+assert_eq "401" "$(cat "$tmp/ns.code" 2>/dev/null)" "anonymous namespaces list is 401"
+assert_eq "Unauthorized" "$(jq -r '.reason // empty' "$tmp/ns.json" 2>/dev/null)" "API itself rejected the request (Status reason)"
 
 # --- serving certificate SAN includes 127.0.0.1 -------------------------------
 assert_succeeds "serving certificate fetched" -- \
@@ -70,6 +71,8 @@ for d in traefik metrics-server coredns local-path-provisioner; do
 done
 
 # --- Traefik 80/443 are not forwarded to the Mac ------------------------------
+# Positive control (Traefik answers 404 on 80/443 inside the VM, Service is a
+# LoadBalancer with an address) lives in m1-k3s-guest.sh, run above.
 assert_fails_with "traefik 443 not forwarded to Mac" --rc 7 --match '^curl: \(7\)' -- curl -sS --max-time 3 -k https://127.0.0.1:443/
 assert_fails_with "traefik 80 not forwarded to Mac" --rc 7 --match '^curl: \(7\)' -- curl -sS --max-time 3 http://127.0.0.1:80/
 

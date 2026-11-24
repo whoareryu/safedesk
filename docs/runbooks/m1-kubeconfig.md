@@ -18,6 +18,7 @@ The script refuses to run if the downloaded `install.sh` does not match the reco
 
 ```sh
 mkdir -p ~/.kube
+rm -f ~/.kube/secure-ax.kubeconfig   # an old file with a looser mode would keep it
 (umask 077; limactl shell "$LIMA_INSTANCE" sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/secure-ax.kubeconfig)
 chmod 600 ~/.kube/secure-ax.kubeconfig
 ```

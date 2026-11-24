@@ -34,8 +34,15 @@ fi
 if [ -x /usr/local/bin/k3s ]; then
   installed="$(/usr/local/bin/k3s --version 2>/dev/null | sed -n 's/^k3s version \([^ ]*\) .*/\1/p' | head -n 1)"
   if [ "$installed" = "$version" ] && systemctl is-active --quiet k3s; then
-    echo "k3s $version already installed and active: skipping"
-    exit 0
+    # The unit must carry the required flags; otherwise re-run the pinned install.
+    unit="$(tr -d "'\\" </etc/systemd/system/k3s.service 2>/dev/null | tr -s '[:space:]' ' ')"
+    case "$unit" in
+      *"--secrets-encryption"*"--write-kubeconfig-mode 600"* | *"--write-kubeconfig-mode 600"*"--secrets-encryption"*)
+        echo "k3s $version already installed and active with the required flags: skipping"
+        exit 0
+        ;;
+      *) echo "k3s $version is installed but the unit lacks the required flags: re-running the pinned install" ;;
+    esac
   fi
 fi
 
@@ -43,7 +50,7 @@ work="$(mktemp -d /tmp/secure-ax-k3s-install.XXXXXX)"
 trap 'rm -rf "$work"' EXIT
 url="https://raw.githubusercontent.com/k3s-io/k3s/${version//+/%2B}/install.sh"
 echo "downloading install.sh from tag $version"
-curl -fsSL --proto '=https' --tlsv1.2 -o "$work/install.sh" "$url"
+curl -fsSL --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 --retry 3 --retry-delay 2 -o "$work/install.sh" "$url"
 actual="$(sha256sum "$work/install.sh" | awk '{print $1}')"
 echo "install.sh sha256: $actual"
 if [ "$actual" != "$INSTALL_SH_SHA256" ]; then
