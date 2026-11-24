@@ -14,15 +14,22 @@
 #   IPv4   127.0.0.0/8, 0.0.0.0, 255.x.x.x (masks, broadcast), K3s default pod and
 #          service CIDRs 10.42.0.0/16 and 10.43.0.0/16, RFC 5737 documentation
 #          ranges 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24, and the public
-#          addresses listed in config/evidence-public-ips.txt. Dotted (a.b.c.d) and
-#          dashed (ip-a-b-c-d) forms are checked. Version strings are skipped only
-#          when the quad follows "v" (v1.2.3.4), follows a 1-3 part version and a
-#          dash (6.8.0-1.2.3.4) or is followed by ".digit" (1.7.2.1.5); a quad glued
-#          to any other letter, '_' or '-' (host-a.b.c.d, a_a.b.c.d, a range
-#          a.b.c.d-e.f.g.h) is an IP.
-#   IPv6   ::, ::1, ::ffff:<v4>, multicast, 2001:db8::/32, fe80::<small id> and
-#          allowlisted prefixes; global, ULA and other link-local addresses are
-#          "ip", EUI-64 ones (ff:fe in the interface id) "mac".
+#          addresses listed in config/evidence-public-ips.txt, multicast 224/4.
+#          Dotted (a.b.c.d), dashed (ip-a-b-c-d) and netstat/tcpdump addr.port
+#          (a.b.c.d.53412) forms are checked. Version strings are skipped only when
+#          the quad is glued directly to a letter (v1.2.3.4, 0ubuntu0.24.04.1),
+#          follows a 2-3 part version at a word start and a dash (6.8.0-1.2.3.4), or
+#          is followed by two or more ".digits" groups (1.7.2.1.5.6). A quad after a
+#          separator is an IP: host-a.b.c.d, a_a.b.c.d, eth0-a.b.c.d, node-1-a.b.c.d,
+#          the second address of a range a.b.c.d-e.f.g.h.
+#   IPv6   ::, ::1, multicast, 2001:db8::/32, fe80::<small id> and allowlisted
+#          prefixes; global, ULA and other link-local addresses are "ip", EUI-64
+#          ones (ff:fe in the interface id) "mac". IPv4-mapped (::ffff:, hex or
+#          dotted) and NAT64 (64:ff9b::/96) addresses are judged by their IPv4;
+#          an embedded IPv4 tail and a trailing ".port" are handled.
+#   allowlist  entries must be IPv4 >= /16 or global IPv6 >= /32 and must not
+#          overlap any private/reserved range (RFC 1918, 100.64/10, 169.254/16,
+#          127/8, 0/8, docs, 224/4, 240/4; 2001::/23, 2001:db8::/32, 2002::/16).
 #   uuid   32-hex ids and 8-4-4-4-12 UUIDs, but NOT 40-hex git SHAs or 64-hex
 #          sha256 digests (a 32-hex run must not touch other hex characters).
 #   email  *@users.noreply.github.com and example/invalid/localhost domains.

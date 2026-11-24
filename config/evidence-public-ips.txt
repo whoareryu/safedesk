@@ -3,9 +3,10 @@
 # every other non-documentation IPv4 / global IPv6 address is treated as a leak.
 #
 # Format: one address or CIDR per line, '#' starts a comment.
-#   IPv4: a.b.c.d or a.b.c.d/n (n 8-32)
-#   IPv6: global unicast (2000::/3) address or prefix/n (n a multiple of 4, >= 16)
-# Private, loopback, link-local, CGNAT and ULA entries are rejected (rc 2):
+#   IPv4: a.b.c.d or a.b.c.d/n (n 16-32)
+#   IPv6: global unicast (2000::/3) address or prefix/n (n a multiple of 4, >= 32)
+# Entries overlapping private/reserved space (RFC 1918, CGNAT, loopback,
+# link-local, docs, multicast, 2001::/23, 2002::/16 6to4, ...) are rejected (rc 2):
 # this list is for addresses that are public by nature (e.g. resolver, CDN edge,
 # the Vercel apex/www records), never for the home, LAN or guest address.
 #

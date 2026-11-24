@@ -256,6 +256,68 @@ assert_fails_with "garbage in the allowlist is rejected" --rc 2 --match '^check-
   expect_public "$CHECK" "$f"
 assert_succeeds "committed allowlist file parses" -- run_in_env "$CHECK" "$ok"
 
+# --- fix round 2 ---------------------------------------------------------------
+# N1: macOS netstat / tcpdump print addr.port (v4) and addr.port (v6).
+expect_leak ip "tcp4       0      0  $other_ip.53412        198.51.100.7.443       ESTABLISHED" "$other_ip"
+expect_leak ip "IP $other_ip.5353 > 224.0.0.251.5353: 0 PTR (QM)? _ssh._tcp.local." "$other_ip"
+g6p="2600:1700:abcd:$(printf '%x' $((RANDOM % 4096 + 4096)))::5"
+expect_leak ip "tcp6       0      0  $g6p.443        2001:db8::9.443       ESTABLISHED" "$g6p"
+f="$tmp/n1.txt"
+{
+  echo "tcp4       0      0  10.77.5.25.53412       198.51.100.7.443       ESTABLISHED"
+  echo "IP 10.77.5.25.5353 > 224.0.0.251.5353: 0 PTR (QM)?"
+  echo "tcp6       0      0  $g6p.443        2001:db8::9.443       ESTABLISHED"
+} >"$f"
+run_in_env env LAN_IP=10.77.5.25 bash -c '. "$1/scripts/verify/lib/scrub.sh" && scrub_evidence "$2"' _ "$ROOT" "$f"
+assert_eq "tcp4       0      0  <LAN_IP>.53412       198.51.100.7.443       ESTABLISHED
+IP <LAN_IP>.5353 > 224.0.0.251.5353: 0 PTR (QM)?
+tcp6       0      0  <IPV6>.443        2001:db8::9.443       ESTABLISHED" "$(cat "$f")" \
+  "netstat/tcpdump addr.port: address replaced, port kept"
+assert_succeeds "netstat/tcpdump lines clean after scrub" -- run_in_env env LAN_IP=10.77.5.25 "$CHECK" "$f"
+
+# N3: IPv4-mapped (hex and dotted), NAT64 and embedded-v4 IPv6 forms.
+expect_leak ip "mapped ::ffff:c0a8:4d19" "c0a8:4d19"
+expect_leak ip "nat64 64:ff9b::c0a8:4d19" "c0a8:4d19"
+expect_leak ip "mapped ::ffff:$other_ip" "$other_ip"
+f="$tmp/n3.txt"
+{
+  echo "a 2600:1700:abcd:1234:aaaa:bbbb:10.77.5.25 b"
+  echo "b ::ffff:c0a8:4d19 c 64:ff9b::c0a8:4d19 d ::ffff:$other_ip e"
+  echo "keep ::ffff:127.0.0.1 ::ffff:7f00:1 64:ff9b::c000:20a"
+} >"$f"
+run_in_env env LAN_IP=10.77.5.25 bash -c '. "$1/scripts/verify/lib/scrub.sh" && scrub_evidence "$2"' _ "$ROOT" "$f"
+assert_eq "a <IPV6> b
+b <IPV6> c <IPV6> d <IPV6> e
+keep ::ffff:127.0.0.1 ::ffff:7f00:1 64:ff9b::c000:20a" "$(cat "$f")" \
+  "embedded-v4 global, mapped and NAT64 private forms fully scrubbed; loopback/doc mapped kept"
+assert_succeeds "mapped forms clean after scrub" -- check "$f"
+
+# N4: a quad glued after <alnum>- is an address, not a version.
+expect_leak ip "iface eth0-$other_ip" "$other_ip"
+expect_leak ip "name node-1-$other_ip" "$other_ip"
+fp="$tmp/fp.txt"
+cat >"$fp" <<'E'
+k3s v1.34.1+k3s1 k8s v1.31.4 kubelet/v1.31.4 (linux/arm64) kubernetes/a1b2c3d
+containerd v1.7.2.1 containerd 1.7.22-0ubuntu0.24.04.1 runc 1.1.12-0ubuntu3.1
+kernel 6.8.0-1.2.3.4-generic linux 6.8.0-134-generic ubuntu 24.04.1 LTS
+etcd 3.5.16-0 flannel v0.26.1 go1.23.4 coredns 1.11.3 traefik 3.3.2
+libssl.so.3 libc.so.6 libfoo.so.1.2.3 python 3.12.3 openssh 9.6p1
+sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+2026-11-24T13:55:10.123+09:00 cf-ray 8f1e2d3c4b5a6978-NRT
+lsof [::1]:6443 127.0.0.1.6443 0.0.0.0.22 *.22 multicast 224.0.0.251.5353 ff02::fb.5353
+E
+assert_succeeds "version strings, digests, loopback addr.port and multicast are not flagged" -- check "$fp"
+
+# N2: allowlist entries overlapping private/reserved space, or too short, are rejected.
+f="$tmp/public.txt"
+for bad in 192.0.0.0/8 172.0.0.0/8 100.0.0.0/8 169.0.0.0/8 192.0.0.0/16 8.8.0.0/15 2600::/16 2002:c0a8::/32 2001:0::/32; do
+  printf '%s\n' "$bad" >"$pub"
+  assert_fails_with "allowlist entry $bad rejected" --rc 2 --match '^check-evidence-clean: bad public-IP allowlist entry' -- \
+    expect_public "$CHECK" "$f"
+done
+printf '8.8.0.0/16\n2606:4700::/32\n' >"$pub"
+assert_succeeds "public /16 and /32 entries accepted" -- expect_public "$CHECK" "$fp"
+
 # --- usage errors --------------------------------------------------------------
 assert_fails_with "no files is a usage error" --rc 2 --match '^check-evidence-clean: usage' -- "$CHECK"
 assert_fails_with "missing file is an error" --rc 2 --match '^check-evidence-clean: cannot read ' -- \

@@ -24,9 +24,10 @@
 #   - shapes: /Users/<name>; MAC addresses (aa:bb:cc:dd:ee:ff incl. unpadded
 #     a:b:c:d:e:f, AA-BB-CC-DD-EE-FF, aabb.ccdd.eeff); UUIDs; bare 32-hex ids;
 #     IPv6 global (2000::/3), ULA (fc00::/7) and link-local (fe80::/10)
-#     addresses -> <IPV6>. Kept: ::, ::1, ::ffff:<v4>, multicast, 2001:db8::/32,
-#     link-local with an interface id below 0x10000 (fe80::1%lo0), and entries
-#     of the public-IP allowlist.
+#     addresses -> <IPV6> (with an embedded IPv4 tail; a trailing netstat ".port"
+#     is kept); IPv4-mapped/NAT64 addresses are judged by their IPv4. Kept: ::,
+#     ::1, multicast, 2001:db8::/32, link-local with an interface id below
+#     0x10000 (fe80::1%lo0), and entries of the public-IP allowlist.
 # Names shorter than 3 characters, "root", "localhost", and names that occur
 # (case-insensitively) inside a placeholder or in "/Users/" (host, mac, user,
 # lan, ...) are never treated as private, so scrubbing stays idempotent and
@@ -34,8 +35,9 @@
 # boundaries.
 #
 # Public-IP allowlist (check-evidence-clean.sh and scrub): one address or CIDR
-# per line, '#' comments; IPv4 a.b.c.d[/n], IPv6 addr[/n] with n a multiple of
-# 4. Private, loopback, link-local, CGNAT and ULA entries are rejected (rc 2).
+# per line, '#' comments; IPv4 a.b.c.d[/n] with n >= 16, global IPv6 addr[/n]
+# with n >= 32 and a multiple of 4. Entries overlapping any private/reserved
+# range are rejected (rc 2).
 # Default file: config/evidence-public-ips.txt; EVIDENCE_PUBLIC_IPS_FILE
 # overrides it (tests).
 
@@ -190,12 +192,22 @@ function v4private(x) {
     inv4(x, v4num("127.0.0.0"), 8) || inv4(x, v4num("169.254.0.0"), 16) || inv4(x, v4num("100.64.0.0"), 10) ||
     inv4(x, 0, 8)
 }
+# Reserved/private IPv4 ranges an allowlist entry must not overlap (net len pairs).
+function v4reserved_overlap(st, en,    i, r, a, net, len, div, rs, re) {
+  split("0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.88.99.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4", r, " ")
+  for (i in r) {
+    split(r[i], a, "/"); net = v4num(a[1]); len = a[2] + 0
+    div = 2 ^ (32 - len); rs = int(net / div) * div; re = rs + div - 1
+    if (st <= re && rs <= en) return 1
+  }
+  return 0
+}
 function badallow(n, line) {
   printf "check-evidence-clean: bad public-IP allowlist entry (line %d of the allowlist)\n", n > "/dev/stderr"
   BAD = 1
   exit 2
 }
-function loadallow(path,    line, n, e, a, len, x, g1) {
+function loadallow(path,    line, n, e, a, len, x, g1, div, st) {
   if (path == "") return
   n = 0
   while ((getline line < path) > 0) {
@@ -208,15 +220,21 @@ function loadallow(path,    line, n, e, a, len, x, g1) {
       x = v4num(e)
       if (x < 0) badallow(n)
       if (len == -1) len = 32
-      if (len + 0 < 8 || len + 0 > 32 || v4private(x)) badallow(n)
+      # at least /16, and no overlap with any private/reserved range
+      if (len + 0 < 16 || len + 0 > 32) badallow(n)
+      div = 2 ^ (32 - len); st = int(x / div) * div
+      if (v4reserved_overlap(st, st + div - 1)) badallow(n)
       NA4++; A4NET[NA4] = x; A4LEN[NA4] = len + 0
     } else {
       x = expand6(e)
       if (x == "") badallow(n)
       if (len == -1) len = 128
-      if (len % 4 != 0 || len + 0 < 16 || len + 0 > 128) badallow(n)
+      # at least /32 (a /16 covers a whole ISP, home prefix included)
+      if (len % 4 != 0 || len + 0 < 32 || len + 0 > 128) badallow(n)
       g1 = hexval(substr(x, 1, 4))
       if (g1 < 8192 || g1 > 16383) badallow(n)   # only global unicast 2000::/3
+      # not 2001::/23 (Teredo, benchmarking, ...), 2001:db8::/32 (docs), 2002::/16 (6to4, embeds IPv4)
+      if (g1 == 8194 || (g1 == 8193 && hexval(substr(x, 5, 4)) < 512) || substr(x, 1, 8) == "20010db8") badallow(n)
       NA6++; A6PRE[NA6] = substr(x, 1, len / 4)
     }
   }
@@ -231,8 +249,12 @@ function allowed6(x,    i) {
   return 0
 }
 # v6kind: "" when the address is not private, else "ip" or "mac" (EUI-64).
-function v6kind(x,    g1) {
+function v6kind(x,    g1, p24) {
   g1 = hexval(substr(x, 1, 4))
+  # IPv4-mapped ::ffff:0:0/96 and NAT64 64:ff9b::/96 carry an IPv4 in the low 32 bits.
+  p24 = substr(x, 1, 24)
+  if (p24 == "00000000000000000000ffff" || p24 == "0064ff9b0000000000000000")
+    return v4ok(hexval(substr(x, 25, 8))) ? "" : "ip"
   if (substr(x, 1, 8) == "20010db8" || allowed6(x)) return ""
   if (g1 >= 65152 && g1 <= 65215) {                # fe80::/10
     if (substr(x, 17, 12) == "000000000000") return ""
@@ -241,6 +263,17 @@ function v6kind(x,    g1) {
   return "ip"
 }
 # repl: literal replacement of val (mode s/i/w/n); records the kind.
+# dotparts <s> <i>: number of ".digits" groups starting at position i.
+function dotparts(s, i,    k) {
+  k = 0
+  while (ch(s, i) == "." && isdigit(ch(s, i + 1))) { k++; i += 2; while (isdigit(ch(s, i))) i++ }
+  return k
+}
+# dotspan <s> <i> <k>: position just after k ".digits" groups starting at i.
+function dotspan(s, i, k) {
+  while (k-- > 0) { i += 2; while (isdigit(ch(s, i))) i++ }
+  return i
+}
 function repl(s, val, ph, mode, kind,    L, ndl, hay, out, start, pos, ok, b, a) {
   L = length(val); if (L == 0) return s
   ndl = (mode == "s") ? val : tolower(val)
@@ -252,7 +285,9 @@ function repl(s, val, ph, mode, kind,    L, ndl, hay, out, start, pos, ok, b, a)
     if (mode == "w") ok = !(isletter(ch(s, pos - 1)) || isletter(ch(s, pos + L)))
     else if (mode == "n") {
       b = ch(s, pos - 1); a = ch(s, pos + L)
-      if (isdigit(b) || (b == "." && isdigit(ch(s, pos - 2))) || isdigit(a) || (a == "." && isdigit(ch(s, pos + L + 1)))) ok = 0
+      if (isdigit(b) || (b == "." && isdigit(ch(s, pos - 2))) || isdigit(a)) ok = 0
+      # a.b.c.d.port (netstat/tcpdump) is the address; a.b.c.d.e.f is not
+      if (ok && dotparts(s, pos + L) >= 2) ok = 0
     }
     if (ok) { out = out substr(s, start, pos - start) ph; start = pos + L; FOUND[kind] = 1 }
     else { out = out substr(s, start, pos - start + 1); start = pos + 1 }
@@ -273,17 +308,29 @@ function rxrepl(s, re, ph, badb, bada, kind,    out, b, a, ok) {
   return out s
 }
 # v6repl: every maximal [0-9A-Fa-f:] run with a colon that parses as a private
-# IPv6 address (plus an optional %zone) becomes <IPV6>.
-function v6repl(s,    out, t, b, a, x, k, st, end) {
+# IPv6 address (plus an optional %zone) becomes <IPV6>. An embedded IPv4 tail
+# (x:...:a.b.c.d, ::ffff:a.b.c.d) belongs to the address; one trailing ".port"
+# (netstat/tcpdump) is kept as text.
+function v6repl(s,    out, t, b, a, x, k, st, end, np, lc, head, q, v) {
   out = ""
   while (match(s, /[0-9A-Fa-f:]*:[0-9A-Fa-f:]*/)) {
     st = RSTART
     t = substr(s, RSTART, RLENGTH)
     b = (RSTART > 1) ? substr(s, RSTART - 1, 1) : ch(out, length(out))
     end = RSTART + RLENGTH
+    np = dotparts(s, end)
+    lc = 0; for (q = length(t); q > 0; q--) if (substr(t, q, 1) == ":") { lc = q; break }
+    head = substr(t, 1, lc); v = substr(t, lc + 1)
+    if (np >= 3 && v ~ /^[0-9]+$/ && length(v) <= 3) {
+      q = v4num(v substr(s, end, dotspan(s, end, 3) - end))
+      if (q >= 0) {
+        t = head sprintf("%x", int(q / 65536)) ":" sprintf("%x", q % 65536)
+        end = dotspan(s, end, 3); np = np - 3
+      }
+    }
     a = ch(s, end)
     k = ""
-    if (!(b ~ /[G-Zg-z_]/ || a ~ /[G-Zg-z_]/ || (a == "." && isdigit(ch(s, end + 1))))) {
+    if (!(b ~ /[G-Zg-z_]/ || a ~ /[G-Zg-z_]/ || np >= 2)) {
       x = expand6(t)
       if (x != "") k = v6kind(x)
     }
@@ -298,21 +345,25 @@ function v6repl(s,    out, t, b, a, x, k, st, end) {
 function v4ok(x) {
   if (x < 0) return 1
   if (inv4(x, v4num("127.0.0.0"), 8) || inv4(x, v4num("255.0.0.0"), 8) || x == 0) return 1
+  if (inv4(x, v4num("224.0.0.0"), 4)) return 1                     # multicast (mDNS 224.0.0.251)
   if (inv4(x, v4num("10.42.0.0"), 16) || inv4(x, v4num("10.43.0.0"), 16)) return 1
   if (inv4(x, v4num("192.0.2.0"), 24) || inv4(x, v4num("198.51.100.0"), 24) || inv4(x, v4num("203.0.113.0"), 24)) return 1
   return allowed4(x)
 }
-function v4check(line,    s, off, q, pre, pre2, post, post2) {
+function v4check(line,    s, off, q, pre, pre2, post, np) {
   s = line; off = 0
   while (match(s, /[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/)) {
     q = substr(s, RSTART, RLENGTH)
     pre = substr(line, 1, off + RSTART - 1)
-    post = ch(s, RSTART + RLENGTH); post2 = ch(s, RSTART + RLENGTH + 1)
+    np = dotparts(s, RSTART + RLENGTH)
     off += RSTART + RLENGTH - 1; s = substr(s, RSTART + RLENGTH)
-    if (pre ~ /(^|[^A-Za-z])[vV]$/) continue                       # v1.2.3.4
-    # 6.8.0-1.2.3.4: a 1-3 part version before a dash (a 4-part one is an IP range)
-    if (pre ~ /(^|[^0-9.])[0-9]+-$/ || pre ~ /(^|[^0-9.])[0-9]+\.[0-9]+-$/ || pre ~ /(^|[^0-9.])[0-9]+\.[0-9]+\.[0-9]+-$/) continue
-    if (post == "." && isdigit(post2)) continue                     # 1.7.2.1.5
+    if (pre ~ /[A-Za-z]$/) continue     # glued to a word: v1.2.3.4, 0ubuntu0.24.04.1 (package versions)
+    # 6.8.0-1.2.3.4: a 2-3 part version at a word start, then a dash. Not eth0-,
+    # node-1- (glued to a word) and not a 4-part one (an IP range a.b.c.d-e.f.g.h).
+    if (pre ~ /(^|[^0-9A-Za-z._-])[0-9]+\.[0-9]+-$/ || pre ~ /(^|[^0-9A-Za-z._-])[0-9]+\.[0-9]+\.[0-9]+-$/) continue
+    # one more ".digits" is a port (netstat/tcpdump a.b.c.d.port); two or more is
+    # a longer dotted number (1.7.2.1.5.6), not an address
+    if (np >= 2) continue
     if (!v4ok(v4num(q))) FOUND["ip"] = 1
   }
   s = line; off = 0
@@ -347,10 +398,11 @@ BEGIN {
 {
   line = $0
   if (check) v4check(line)
+  # IPv6 first, so an embedded/mapped LAN_IP is replaced together with its prefix
+  line = v6repl(line)
   for (k = 1; k <= n; k++) if (PHASE[k] == 1) line = repl(line, VAL[k], PH[k], MODE[k], KIND[k])
   line = rxrepl(line, "/Users/[A-Za-z0-9._-]+", "/Users/<user>", "", "", "user-path")
   line = rxrepl(line, RE_UUID, "<UUID>", "", "", "uuid")
-  line = v6repl(line)
   line = rxrepl(line, RE_MACC, "<MAC>", "[0-9A-Za-z:_]", "[0-9A-Za-z:_]", "mac")
   line = rxrepl(line, RE_MACD, "<MAC>", "[0-9A-Za-z_-]", "[0-9A-Za-z_-]", "mac")
   line = rxrepl(line, RE_MACP, "<MAC>", "[0-9A-Za-z_.]", "[0-9A-Za-z_.]", "mac")
