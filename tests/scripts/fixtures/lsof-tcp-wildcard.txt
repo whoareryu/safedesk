@@ -1,0 +1,4 @@
+COMMAND     PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+limactl    4242 demo   10u  IPv4 0x1a2b3c4d5e6f7a01      0t0  TCP 127.0.0.1:6443 (LISTEN)
+limactl    4242 demo   12u  IPv6 0x1a2b3c4d5e6f7a06      0t0  TCP *:443 (LISTEN)
+rapportd    612 demo    4u  IPv4 0x1a2b3c4d5e6f7a04      0t0  TCP *:49152 (LISTEN)

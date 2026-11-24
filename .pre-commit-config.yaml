@@ -12,3 +12,9 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+      - id: check-evidence-clean
+        name: evidence files contain no private values
+        entry: scripts/verify/check-evidence-clean.sh
+        language: system
+        files: ^docs/(evidence|cost)/
+        types: [text]

@@ -1,0 +1,3 @@
+COMMAND     PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+rapportd    612 demo    4u  IPv4 0x1a2b3c4d5e6f7a04      0t0  TCP *:49152 (LISTEN)
+ControlCe   701 demo    7u  IPv4 0x1a2b3c4d5e6f7a07      0t0  TCP *:7000 (LISTEN)
