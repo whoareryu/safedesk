@@ -21,12 +21,16 @@ Record the `limactl` version in `k8s/VERSIONS.md`. Lima 2.x is required.
 
 ```sh
 limactl tmpl validate infra/lima/secure-ax.yaml
-limactl tmpl copy --embed-all infra/lima/secure-ax.yaml - | grep -E -A3 '^(mounts|networks):|location:'
+t=$(mktemp -d)
+limactl tmpl copy --embed-all infra/lima/secure-ax.yaml "$t/merged.yaml"
+limactl tmpl yq "$t/merged.yaml" '{"mounts": (.mounts // []), "networks": (.networks // [])} | @json'
+rm -rf "$t"
 ```
 
-Expected: exactly `mounts: []` and `networks: []`, and no `location:` line anywhere.
-Anything else (a `location:` entry, or a non-empty `mounts:` / `networks:`) means stop:
-a base template re-added the Mac home mount (see `k8s/VERSIONS.md`).
+Expected output, exactly: `{"mounts":[],"networks":[]}`.
+Anything else (any entry under `mounts` or `networks`) means stop: a base template
+re-added the Mac home mount or a VM network (see `k8s/VERSIONS.md`). Do not grep the
+merged file for `location:` — the image list also uses `location:` for image URLs.
 
 ## 3. Create and start
 
