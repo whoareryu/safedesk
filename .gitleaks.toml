@@ -47,15 +47,18 @@ regexes = ['''(?i)^tskey-(?:[a-z]+-)?(?:x+|\*+|0+)[x*0-]*$''']
 [[rules]]
 id = "cloudflare-api-token-env"
 description = "Cloudflare API token in CF_API_TOKEN= or api-token: form"
-regex = '''(?i)\b(?:cf[_-]api[_-]token|api-token)["']?[ \t]*[:=][ \t]*["']?([A-Za-z0-9_-]{40,})\b'''
+regex = '''(?i)(?:cf[_-](?:[a-z0-9]+[_-])?api[_-]token|api-token)["']?[ \t]*[:=][ \t]*["']?([A-Za-z0-9_-]{40,})\b'''
 secretGroup = 1
-keywords = ["cf_api_token", "cf-api-token", "api-token"]
+keywords = ["api_token", "api-token"]
+[[rules.allowlists]]
+description = "letter-only placeholders such as REPLACE_ME_..."
+regexes = ['''^[A-Z_]+$''', '''(?i)^(?:replace|your|example|changeme)''']
 
 # cloudflared tunnel credentials JSON: the "TunnelSecret" value (base64).
 [[rules]]
 id = "cloudflared-tunnel-credentials"
 description = "cloudflared tunnel credentials file (TunnelSecret)"
-regex = '''"TunnelSecret"[ \t]*:[ \t]*"([A-Za-z0-9+/_-]{20,}={0,2})"'''
+regex = '''\\?"TunnelSecret\\?"[ \t]*:[ \t]*\\?"([A-Za-z0-9+/_-]{20,}={0,2})\\?"'''
 secretGroup = 1
 keywords = ["tunnelsecret"]
 

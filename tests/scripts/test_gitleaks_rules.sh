@@ -54,6 +54,9 @@ TOK="eyJh""Ijoi$(b64 150 | tr '+/' '-_')"
 printf 'CF_API_TOKEN=%s\n' "$CFT" >"$fx/positive/cf-env.txt"
 printf 'apiVersion: v1\nkind: Secret\nstringData:\n  api-token: %s\n' "$(rndw 40)" >"$fx/positive/cf-secret.yaml"
 printf '{"AccountTag":"%s","TunnelSecret":"%s=","TunnelID":"%s"}\n' "$(rnd 32)" "$(b64 32)" "$(uuid)" >"$fx/positive/tunnel-creds.json"
+printf 'CF_DNS_API_TOKEN=%s\n' "$(rndw 40)" >"$fx/positive/cf-dns-env.txt"
+printf 'export CF_READONLY_API_TOKEN="%s"\n' "$(rndw 40)" >"$fx/positive/cf-ro-env.sh"
+printf 'echo "{\\"TunnelSecret\\":\\"%s=\\"}" > creds.json\n' "$(b64 32)" >"$fx/positive/tunnel-creds-escaped.sh"
 printf 'TUNNEL_TOKEN=%s\n' "$TOK" >"$fx/positive/tunnel-token.env"
 printf -- '-----BEGIN ARGO ''TUNNEL TOKEN-----\n%s\n-----END ARGO TUNNEL TOKEN-----\n' "$(b64 220 | fold -w 64)" >"$fx/positive/origin-cert.txt"
 
@@ -63,12 +66,17 @@ printf 'tunnel: ${TUNNEL_ID}\ncredentials-file: /etc/cloudflared/${TUNNEL_ID}.js
 printf 'CF_API_TOKEN=<placeholder>\n' >"$fx/negative/cf-placeholder.env"
 printf '{"TunnelSecret": "<redacted>"}\n' >"$fx/negative/tunnel-redacted.json"
 
+printf 'CF_API_TOKEN=REPLACE_ME_WITH_YOUR_CLOUDFLARE_API_TOKEN_HERE\n' >"$fx/negative/cf-replace-me.env"
+printf 'stringData:\n  api-token: REPLACE_WITH_SCOPED_DNS_EDIT_TOKEN_FROM_KEYCHAIN_X\n' >"$fx/negative/cf-replace-yaml.yaml"
+
 # Config under test: the repo config as-is (it carries no path allowlist).
 assert_fails "repo config has no fixture allowlist" -- grep -q 'fixtures' "$ROOT/.gitleaks.toml"
 
 gitleaks dir "$fx" --config "$ROOT/.gitleaks.toml" --report-format json \
   --report-path "$tmp/report.json" --no-banner --log-level error >/dev/null 2>&1
 flagged="$(jq -r '.[].File' "$tmp/report.json" 2>/dev/null | sed "s#^$fx/##" | sort -u)"
+# "<relative file> <RuleID>" per finding, to pin each Cloudflare fixture to its rule.
+hits="$(jq -r '.[] | "\(.File) \(.RuleID)"' "$tmp/report.json" 2>/dev/null | sed -E 's#^.*/(positive|negative)/#\1/#' | sort -u)"
 
 for f in "$fx"/positive/*; do
   n="positive/$(basename "$f")"
@@ -81,6 +89,21 @@ for f in "$fx"/negative/*; do
   assert_eq no "$hit" "not flagged: $n"
 done
 
-assert_eq 17 "$(printf "%s\n" "$flagged" | grep -c .)" "exactly the 17 positive fixtures are flagged"
+# Each Cloudflare positive must be caught by its own custom rule (not only by
+# entropy-based generic-api-key), and the default keyword-bound rule must not be
+# what catches the keyword-less form.
+assert_contains "$hits" "positive/cf-env.txt cloudflare-api-token-env" "cf-env by cloudflare-api-token-env"
+assert_contains "$hits" "positive/cf-secret.yaml cloudflare-api-token-env" "cf-secret by cloudflare-api-token-env"
+assert_contains "$hits" "positive/cf-dns-env.txt cloudflare-api-token-env" "CF_DNS_API_TOKEN by cloudflare-api-token-env"
+assert_contains "$hits" "positive/cf-ro-env.sh cloudflare-api-token-env" "CF_READONLY_API_TOKEN by cloudflare-api-token-env"
+assert_contains "$hits" "positive/tunnel-creds.json cloudflared-tunnel-credentials" "tunnel-creds by cloudflared-tunnel-credentials"
+assert_contains "$hits" "positive/tunnel-creds-escaped.sh cloudflared-tunnel-credentials" "escaped tunnel-creds by cloudflared-tunnel-credentials"
+assert_contains "$hits" "positive/tunnel-token.env cloudflared-tunnel-token" "tunnel-token by cloudflared-tunnel-token"
+assert_contains "$hits" "positive/origin-cert.txt cloudflared-origin-cert" "origin-cert by cloudflared-origin-cert"
+cfdefault=no
+case "$hits" in *"positive/cf-env.txt cloudflare-api-key"*) cfdefault=yes ;; esac
+assert_eq no "$cfdefault" "default cloudflare-api-key does not catch keyword-less CF_API_TOKEN"
+
+assert_eq 20 "$(printf "%s\n" "$flagged" | grep -c .)" "exactly the 20 positive fixtures are flagged"
 
 assert_summary

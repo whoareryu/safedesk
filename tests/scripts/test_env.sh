@@ -60,6 +60,9 @@ assert_fails_with "missing vars reported before oci rejection" --rc 2 --match 'm
 # PUBLIC_IP / TS_IP are no longer required; stale values are not exported.
 write_env "$tmp/stale.env" PUBLIC_IP=203.0.113.7 TS_IP=100.64.0.9
 assert_succeeds "stale PUBLIC_IP/TS_IP tolerated" -- load "$tmp/stale.env"
+# shellcheck disable=SC2016
+out="$(load "$tmp/stale.env" 'sh -c "printf %s \"\${PUBLIC_IP-unset}/\${TS_IP-unset}\""' 2>&1)"
+assert_eq unset/unset "$out" "stale PUBLIC_IP/TS_IP not exported"
 
 # TUNNEL_ID is optional; when set it is exported to child processes.
 fake_id="$(LC_ALL=C tr -dc 'a-f0-9' </dev/urandom | head -c 12)"

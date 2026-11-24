@@ -1,0 +1,18 @@
+# Fake test fixtures committed in 7ca8306 (duckdns/tailscale-shaped, randomly generated, never real).
+# GitHub secret-scanning alerts for them are closed as used_in_tests; the files were removed in 93e0deb.
+# Fingerprints are commit:path:rule:line, so they cover only these 15 historical findings.
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/apikey.yaml:duckdns-token-block:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/apikey.yaml:duckdns-token:2
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/duckdns-block.yaml:duckdns-token-block:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/duckdns-block.yaml:duckdns-token-file:3
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/duckdns-token:duckdns-token-file:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/far-keyword.txt:duckdns-token:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/token.yaml:duckdns-token-file:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/token.yaml:duckdns-token:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/ts-api.txt:tailscale-auth-key:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/ts-auth.txt:tailscale-auth-key:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/ts-client.txt:tailscale-auth-key:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/ts-kid.txt:tailscale-auth-key:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/ts-legacy.txt:tailscale-auth-key:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/update-url.sh:duckdns-token:1
+7ca83060bcf8e363c22d5bd74b8033a9624fdb13:tests/scripts/fixtures/gitleaks/positive/upper.txt:duckdns-token:1
