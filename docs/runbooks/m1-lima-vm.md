@@ -65,3 +65,53 @@ The second call also confirms passwordless sudo (`limactl shell "$LIMA_INSTANCE"
 
 - The repo is not mounted in the VM; `vm_run` copies `scripts/lib/`, `scripts/verify/lib/` and the target script to a per-run `/tmp/secure-ax.XXXXXX` and removes it afterwards.
 - Never add `networks`, `mounts` or portForward rules to "fix" connectivity. Ask first.
+
+## LAN 스캔 (S1 대체 증거, 수동, Mac에서)
+
+Mac의 LAN IP에서 VM이 포트를 늘리지 않는지, VM 꺼짐/켜짐 두 번의 `nmap` 결과로 비교한다. 호스트 방화벽이 없으므로 이 증거와 `m1-exposure.sh`가 `networks: []`·포워드 규칙의 효과를 보여 준다. 이 절은 스캔을 **수동으로** 한 번 하는 절차이고, 검증 스크립트는 스캔 자체를 실행하지 않는다.
+
+기본 경로는 Mac의 Docker 컨테이너(`make lan-scan`)다. 한계: Docker Desktop 네트워크는 실제 LAN 경로를 거치지 않았을 수 있다. 그래서 증거 머리에 `scanner: docker`와 한계 문장이 자동으로 들어가고, `m1-lan-scan.sh`가 이 문장이 없으면 FAIL시킨다. 같은 LAN의 다른 실제 기기(다른 노트북의 nmap, 안드로이드 Termux의 nmap)에서 같은 명령으로 스캔할 수 있게 되면 그쪽이 더 강한 증거다. 그 경우 3~4의 스캔 명령만 아래 "다른 기기" 메모대로 바꾼다.
+
+사전 준비: Docker Desktop 실행, Mac이 집 등 신뢰하는 LAN에 연결, 작업 디렉터리는 저장소 루트.
+
+```sh
+LAN_IP="$(ipconfig getifaddr "$(route -n get default | awk '/interface:/ {print $2}')")"   # 값은 문서에 쓰지 않는다
+mkdir -p docs/evidence/m1/raw      # raw/ 는 .gitignore 대상 (치환 전 원본)
+```
+
+스캔 대상은 항상 위 `LAN_IP`(Mac의 실제 LAN 주소)다. `host.docker.internal`이나 Docker 게이트웨이 주소는 쓰지 않는다 (`lan-scan-docker.sh`가 호스트 이름과 루프백/링크로컬 주소를 거부한다).
+
+1. **대조 리스너**: 별도 터미널에서 `python3 -m http.server 18090 --bind "$LAN_IP"`. 스캐너가 Mac의 열린 포트를 실제로 본다는 양성 대조이며, 두 스캔 모두에서 18090이 열림으로 나와야 한다.
+2. **방화벽 상태** (sudo 불필요): `/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate`.
+   - `disabled`: 건너뛴다. 기록은 `firewall-state: disabled`, `firewall-allowance: no`.
+   - `enabled`인데 스캔에서 18090이 막히면 (MANUAL, sudo 필요, 스캔하는 동안만) python을 허용한다: `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add <python 경로>` 후 `sudo ... --unblockapp <python 경로>`. 이 경우 3~4에서 `LAN_SCAN_ARGS="--firewall-allowance yes --python-path <python 경로>"`를 넘긴다.
+3. **VM 끄고 스캔**:
+   ```sh
+   limactl stop "$LIMA_INSTANCE"
+   make lan-scan OUT=docs/evidence/m1/raw/lan-scan-base-vm-off.gnmap
+   ```
+   헤더(`scanner: docker`, `control-port: 18090`, `firewall-state`, `firewall-allowance`, 한계 문장)는 자동으로 들어간다. 방화벽 상태는 자동 감지된다. **결과에서 18090이 `open`이 아니면 (예: `filtered`) 스캔이 무효다.** 기록하지 말고 멈춰서 대조 리스너와 방화벽을 점검한 뒤 다시 한다. 확인: `grep -F '18090/open' docs/evidence/m1/raw/lan-scan-base-vm-off.gnmap`.
+4. **VM 켜고 스캔**:
+   ```sh
+   limactl start "$LIMA_INSTANCE"
+   make lan-scan OUT=docs/evidence/m1/raw/lan-scan-base-vm-on.gnmap
+   ```
+   같은 방식으로 18090 확인.
+5. **치환·저장**: 원본을 복사해 `scrub_evidence`와 `check-evidence-clean`을 거친 것만 `docs/evidence/m1/`에 둔다.
+   ```sh
+   export LAN_IP
+   for s in off on; do
+     cp docs/evidence/m1/raw/lan-scan-base-vm-$s.gnmap docs/evidence/m1/lan-scan-base-vm-$s.gnmap
+     bash -c '. scripts/verify/lib/scrub.sh; scrub_evidence "$1"' _ docs/evidence/m1/lan-scan-base-vm-$s.gnmap
+   done
+   scripts/verify/check-evidence-clean.sh docs/evidence/m1/lan-scan-base-vm-*.gnmap
+   ```
+   원본(`raw/`)은 커밋하지 않는다. 다 끝나면 지워도 된다.
+6. **정리**: 대조 리스너(1)를 Ctrl-C로 멈춘다. 2에서 python을 허용했다면 (MANUAL, sudo 필요) `sudo /usr/libexec/ApplicationFirewall/socketfilterfw --remove <python 경로>` 후 `/usr/libexec/ApplicationFirewall/socketfilterfw --listapps`(sudo 불필요)로 빠졌는지 본다.
+7. **판정**:
+   ```sh
+   scripts/verify/m1-lan-scan.sh --vm-off docs/evidence/m1/lan-scan-base-vm-off.gnmap --vm-on docs/evidence/m1/lan-scan-base-vm-on.gnmap
+   ```
+   PASS여야 한다 (VM 켜짐/꺼짐의 열린 TCP 포트 목록이 같고, 22·80·443·6443·10250·20241·Lima SSH 포트가 열려 있지 않다).
+
+다른 기기 메모 (더 강한 증거): 같은 LAN의 다른 노트북 또는 안드로이드 Termux(`pkg install nmap`)에서 `nmap -n -Pn -p- -T4 -oG lan-scan-base-vm-off.gnmap <LAN_IP>`(VM 켠 뒤에는 `...-vm-on.gnmap`)를 실행하고, 파일을 USB나 본인 채널로 Mac에 옮긴다 (공개 붙여넣기 사이트 금지). Wi-Fi 클라이언트 격리가 켜진 네트워크는 18090도 막혀 스캔이 무효가 된다. 각 파일 맨 위에 `# scanner: device`, `# control-port: 18090`, `# firewall-state: ...`, `# firewall-allowance: ...` 네 줄을 직접 넣고(기기 이름·IP는 적지 않는다) 5의 치환을 한다. nmap의 `-oG` 형식만 받는다.
