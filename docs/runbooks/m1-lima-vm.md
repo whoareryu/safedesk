@@ -21,11 +21,12 @@ Record the `limactl` version in `k8s/VERSIONS.md`. Lima 2.x is required.
 
 ```sh
 limactl tmpl validate infra/lima/secure-ax.yaml
-limactl tmpl copy --embed-all infra/lima/secure-ax.yaml - | grep -E '^(mounts|networks):'
+limactl tmpl copy --embed-all infra/lima/secure-ax.yaml - | grep -E -A3 '^(mounts|networks):|location:'
 ```
 
-Expected: `mounts: []` and `networks: []`. If `mounts:` shows a `location:` entry,
-stop: a base template re-added the Mac home mount (see `k8s/VERSIONS.md`).
+Expected: exactly `mounts: []` and `networks: []`, and no `location:` line anywhere.
+Anything else (a `location:` entry, or a non-empty `mounts:` / `networks:`) means stop:
+a base template re-added the Mac home mount (see `k8s/VERSIONS.md`).
 
 ## 3. Create and start
 
@@ -47,11 +48,16 @@ create log). Replace the placeholder row.
 scripts/verify/m1-lima.sh            # instance config, on the Mac
 ```
 
-Then run `m1-host.sh` inside the VM through `vm_run` (`scripts/verify/lib/remote.sh`)
-and confirm root access works: `vm_run --root` on any script, or
-`limactl shell "$LIMA_INSTANCE" -- sudo -n true`.
+Then run `m1-host.sh` inside the VM through `vm_run` (`scripts/verify/lib/remote.sh`),
+from the repo root, both as the default user and as root:
+
+```sh
+bash -c '. scripts/lib/env.sh; load_env; . scripts/verify/lib/remote.sh; vm_run scripts/verify/m1-host.sh && vm_run --root scripts/verify/m1-host.sh'
+```
+
+The second call also confirms passwordless sudo (`limactl shell "$LIMA_INSTANCE" -- sudo -n true`).
 
 ## Notes
 
-- The repo is not mounted in the VM; scripts are copied to `/tmp/secure-ax/` by `vm_run`.
+- The repo is not mounted in the VM; `vm_run` copies `scripts/lib/`, `scripts/verify/lib/` and the target script to a per-run `/tmp/secure-ax.XXXXXX` and removes it afterwards.
 - Never add `networks`, `mounts` or portForward rules to "fix" connectivity. Ask first.

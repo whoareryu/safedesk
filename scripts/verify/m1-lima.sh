@@ -33,17 +33,31 @@ assert_eq "0" "$(q '(.config.mounts // []) | length')" "no mounts"
 assert_eq "0" "$(q '(.config.networks // []) | length')" "no extra networks (config)"
 assert_eq "0" "$(q '(.network // []) | length')" "no extra networks (instance)"
 
-assert_eq "6443/127.0.0.1/6443/null" \
-  "$(q '.config.portForwards[0] | "\(.guestPort)/\(.hostIP)/\(.hostPort)/\(.ignore // null)"')" \
-  "rule 1 forwards guest 6443 to 127.0.0.1:6443 (not ignore)"
-assert_eq "0.0.0.0/false/any/true" \
-  "$(q '.config.portForwards[1] | "\(.guestIP)/\(.guestIPMustBeZero // false)/\(.proto // "any")/\(.ignore)"')" \
-  "rule 2 is the catch-all ignore"
+# Rule 1 (filled form, so every field below is always present): only guest
+# 127.0.0.1:6443 -> Mac 127.0.0.1:6443, and no reverse / socket forwarding.
+# shellcheck disable=SC2016
+assert_eq "6443/127.0.0.1/6443/null/127.0.0.1/[6443,6443]/[6443,6443]/null/null/null" \
+  "$(q '.config.portForwards[0] | "\(.guestPort)/\(.hostIP)/\(.hostPort)/\(.ignore // null)/\(.guestIP)/\(.guestPortRange | tojson)/\(.hostPortRange | tojson)/\(.reverse // null)/\(.guestSocket // null)/\(.hostSocket // null)"')" \
+  "rule 1 forwards only guest 127.0.0.1:6443 to Mac 127.0.0.1:6443 (no ignore, reverse, sockets)"
+# Rule 2 must cover ALL guest ports, otherwise Lima's runtime default rule
+# forwards the rest (kubelet 10250, NodePorts ...) to the Mac.
+# shellcheck disable=SC2016
+assert_eq "0.0.0.0/false/any/true/[1,65535]" \
+  "$(q '.config.portForwards[1] | "\(.guestIP)/\(.guestIPMustBeZero // false)/\(.proto // "any")/\(.ignore)/\(.guestPortRange | tojson)"')" \
+  "rule 2 is the catch-all ignore for guest ports 1-65535"
+assert_eq "false" "$(q '.config.ssh.forwardAgent // false')" "ssh agent is not forwarded into the VM"
+assert_eq "false" "$(q '.config.ssh.forwardX11 // false')" "X11 is not forwarded"
+assert_eq "false" "$(q '.config.ssh.forwardX11Trusted // false')" "trusted X11 is not forwarded"
+assert_eq "false" "$(q '.config.vmOpts.vz.rosetta.enabled // false')" "Rosetta is off"
 
-# Drift: repo definition vs instance config (portForwards limited to the first
-# two rules and to the fields the repo file sets explicitly).
+# Drift: repo definition vs instance config. Both sides are in Lima's filled
+# form (`tmpl yq` and `list --json` .config), so the first two portForward
+# rule objects are compared whole (ranges, guestIP, proto, reverse ...).
 proj='{vmType, cpus, memory, disk, mounts: (.mounts // []), networks: (.networks // []),
-  pf: [(.portForwards // [])[0:2][] | {guestPort, hostPort, hostIP, ignore}]}'
+  pf: (.portForwards // [])[0:2],
+  ssh: {forwardAgent: (.ssh.forwardAgent // false), forwardX11: (.ssh.forwardX11 // false),
+    forwardX11Trusted: (.ssh.forwardX11Trusted // false)},
+  rosetta: (.vmOpts.vz.rosetta.enabled // false)}'
 # shellcheck disable=SC2016
 assert_succeeds "repo definition rendered" -- \
   sh -c 'limactl tmpl yq "$1" ". | @json" >"$2" 2>"$3"' _ "$REPO/infra/lima/secure-ax.yaml" "$tmp/repo.json" "$tmp/repo.err"
