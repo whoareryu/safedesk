@@ -1,0 +1,14 @@
+# Guest listeners (ss -Hltnu), stage: base. Recorded for documentation, NOT a control.
+# There is no host firewall in the VM: any non-loopback listener below is hidden from
+# the Mac and the LAN only by Lima 'networks: []' and the 6443-only port forward with
+# a catch-all ignore. m1-exposure.sh re-checks both behaviours on every run.
+# Private values are replaced by placeholders (<GUEST_IP>, <IPV6>, ...).
+tcp 0.0.0.0:22
+tcp 127.0.0.53:53
+tcp 127.0.0.54:53
+tcp [::]:22
+udp 0.0.0.0:5353
+udp 127.0.0.53:53
+udp 127.0.0.54:53
+udp <GUEST_IP>:68
+udp [::]:5353
